@@ -2,10 +2,10 @@ import { GoogleGenAI, Type, Modality, GenerateContentResponse } from "@google/ge
 import { ProductData, AspectRatio, ImageResolution, SceneDraft } from "@/types";
 
 // Re-export constants used by server
-const GEMINI_MODEL_ANALYSIS = 'gemini-2.0-flash';
+const GEMINI_MODEL_ANALYSIS = 'gemini-1.5-flash';
 const GEMINI_MODEL_ANALYSIS_FALLBACK = 'gemini-1.5-flash';
 const GEMINI_MODEL_IMAGE = 'imagen-3.0-generate-002';
-const GEMINI_MODEL_TTS = 'gemini-2.0-flash';
+const GEMINI_MODEL_TTS = 'gemini-1.5-flash';
 
 export const VOICE_OPTIONS = ['Kore', 'Fenrir', 'Puck', 'Charon', 'Zephyr'];
 
