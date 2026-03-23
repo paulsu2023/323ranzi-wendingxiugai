@@ -3,7 +3,7 @@ import { GoogleGenAI, GenerateContentResponse } from '@google/genai';
 import { createClient } from '@/lib/supabase/server';
 
 const genai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-const GEMINI_MODEL_ANALYSIS = 'gemini-2.5-pro-preview-06-05';
+const GEMINI_MODEL_ANALYSIS = 'gemini-1.5-flash';
 
 export async function POST(request: NextRequest) {
   try {

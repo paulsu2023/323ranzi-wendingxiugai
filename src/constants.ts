@@ -1,17 +1,17 @@
 
 import { AspectRatio, VideoMode, ImageResolution } from './types';
 
-// Using Gemini 3.0 Pro for high-level reasoning/analysis
-export const GEMINI_MODEL_ANALYSIS = 'gemini-3-pro-preview';
+// Using Gemini 1.5 Flash for high-level reasoning/analysis (Cost efficient)
+export const GEMINI_MODEL_ANALYSIS = 'gemini-1.5-flash';
 
-// Fallback model with higher quotas/rate limits (Gemini 2.5 Flash)
-export const GEMINI_MODEL_ANALYSIS_FALLBACK = 'gemini-2.5-flash';
+// Fallback model
+export const GEMINI_MODEL_ANALYSIS_FALLBACK = 'gemini-1.5-flash';
 
-// Using Gemini 3.0 Pro Image (Banana Pro equivalent) for high quality assets
-export const GEMINI_MODEL_IMAGE = 'gemini-3-pro-image-preview'; 
+// Using Imagen 3 for high quality assets
+export const GEMINI_MODEL_IMAGE = 'imagen-3.0-generate-002'; 
 
 // TTS Model
-export const GEMINI_MODEL_TTS = 'gemini-2.5-flash-preview-tts';
+export const GEMINI_MODEL_TTS = 'gemini-1.5-flash';
 
 export const TARGET_MARKETS = [
   { value: 'MX', label: 'Mexico (墨西哥)', language: 'Spanish', culture: 'Mexican/Latin American ethnicity, vibrant, warm, family-oriented and social style', disabled: false },
@@ -41,7 +41,7 @@ export const VIDEO_MODES = [
 
 // Removed Flash model option to strictly enforce Pro quality
 export const IMAGE_MODELS = [
-  { value: 'gemini-3-pro-image-preview', label: 'Banana Pro (专业 - 高清)' },
+  { value: 'imagen-3.0-generate-002', label: 'Imagen 3 (高精度 - 推荐)' },
 ];
 
 export const VOICE_OPTIONS = ['Kore', 'Fenrir', 'Puck', 'Charon', 'Zephyr'];
@@ -62,3 +62,11 @@ export const SHOOTING_STYLES = [
   { value: 'gimbal', label: '稳定器运镜 (Gimbal)', prompt: 'smooth gimbal shot, cinematic movement, floating camera, steady flow' },
   { value: 'mixed', label: '混合运镜 (Mixed)', prompt: 'cinematic movement, dynamic angles, smooth transition, creative camera work' },
 ];
+
+export const CREDIT_PACKAGES = [
+  { id: 'starter', name: '体验包', credits: 50, price: 2900, currency: 'cny', description: '适合初次体验', popular: false },
+  { id: 'standard', name: '标准包', credits: 200, price: 9900, currency: 'cny', description: '最受欢迎', popular: true },
+  { id: 'pro', name: '专业包', credits: 800, price: 29900, currency: 'cny', description: '专业用户首选', popular: false }
+] as const;
+
+export const CREDIT_COSTS = { ANALYZE: 5, IMAGE_GEN: 2, AUDIO_GEN: 1 } as const;
