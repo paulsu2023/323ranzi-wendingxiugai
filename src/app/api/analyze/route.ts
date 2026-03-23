@@ -36,7 +36,21 @@ export async function POST(request: NextRequest) {
 
     // === All Gemini logic runs SERVER SIDE, API key never leaves server ===
     const { analyzeProduct } = await import('@/lib/gemini/geminiService');
-    const result = await analyzeProduct(genai, product, sceneCount);
+    
+    let result;
+    try {
+      result = await analyzeProduct(genai, product, sceneCount);
+    } catch (aiError: any) {
+      // Refund credits if AI fails
+      console.log('AI Failed, refunding credits...');
+      await supabase.rpc('add_credits', {
+        p_user_id: user.id,
+        p_amount: CREDIT_COSTS.ANALYZE,
+        p_type: 'refund',
+        p_description: '分析失败自动退还'
+      });
+      throw aiError;
+    }
 
     return NextResponse.json({
       result,
