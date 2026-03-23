@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 import { Sparkles, Zap, Crown, Star, CreditCard, History, LogOut, ArrowRight, CheckCircle, AlertCircle, Coins } from 'lucide-react';
-import { CREDIT_PACKAGES } from '@/lib/stripe';
+import { CREDIT_PACKAGES } from '@/constants';
 
 interface Props {
   profile: { credits: number; email: string; display_name: string; plan: string };

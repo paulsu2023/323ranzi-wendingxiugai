@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenAI } from '@google/genai';
 import { createClient } from '@/lib/supabase/server';
-import { CREDIT_COSTS } from '@/lib/stripe';
+import { CREDIT_COSTS } from '@/constants';
 
 const genai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
