@@ -220,31 +220,7 @@ export const generateImage = async (
   else if (aspectRatio === '4:3') parsedAspect = '4:3';
   else if (aspectRatio === '3:4') parsedAspect = '3:4';
 
-  // **CRITICAL MAP**: The 'Banana' models used internal AI Studio IDs (e.g. 'gemini-3-pro-image-preview').
-  // In the public API, the flagship image generation model for both Flash and Pro tiers is 'imagen-3.0-generate-002'.
-  // We seamlessly map the internal representation to the correct public endpoint.
-  let mappedModelName = modelName;
-  if (modelName.includes('image-preview') || modelName.includes('imagen')) {
-      mappedModelName = 'imagen-3.0-generate-002';
-  }
-
-  // Handle Imagen/Specialized Image Models (Banana 2 / Banana Pro mapped to Imagen 3 API)
-  if (mappedModelName.includes('imagen')) {
-    const response = await withRetry(() => client.models.generateImages({
-      model: mappedModelName,
-      prompt: finalPrompt,
-      config: {
-        numberOfImages: 1,
-        outputMimeType: 'image/jpeg',
-        aspectRatio: parsedAspect as any,
-      }
-    }));
-    const base64Bytes = response.generatedImages?.[0]?.image?.imageBytes;
-    if (!base64Bytes) throw new Error("Image Model failed to return data");
-    return base64Bytes;
-  }
-
-  // Handle Gemini Multimodal Models (Banana Pro / Banana 2 equivalents)
+  // Send everything straight through generateContent (Compatible with Flow2API bypass)
   const parts: any[] = [{ text: finalPrompt }];
   referenceImages.slice(0, 3).forEach(ref => {
     parts.unshift({ inlineData: { mimeType: 'image/jpeg', data: ref } });
@@ -261,7 +237,7 @@ export const generateImage = async (
   const data = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || 
                response.candidates?.[0]?.content?.parts?.[0]?.text; // Some models return text, but we expect data
   
-  if (!data) throw new Error("Gemini model failed to generate image data");
+  if (!data) throw new Error("Gemini/FlowAPI model failed to generate image data");
   return data;
 };
 

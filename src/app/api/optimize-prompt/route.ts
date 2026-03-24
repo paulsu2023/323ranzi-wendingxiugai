@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenAI, GenerateContentResponse } from '@google/genai';
 import { createClient } from '@/lib/supabase/server';
 
-const genai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+const genaiConfig: any = { apiKey: process.env.GEMINI_API_KEY! };
+if (process.env.GEMINI_BASE_URL) {
+  genaiConfig.httpOptions = { baseUrl: process.env.GEMINI_BASE_URL };
+}
+const genai = new GoogleGenAI(genaiConfig);
 const GEMINI_MODEL_ANALYSIS = 'gemini-3-flash-preview';
 
 export async function POST(request: NextRequest) {

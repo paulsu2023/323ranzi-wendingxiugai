@@ -3,7 +3,12 @@ import { GoogleGenAI } from '@google/genai';
 import { createClient } from '@/lib/supabase/server';
 import { CREDIT_COSTS } from '@/constants';
 
-const genai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+const genaiConfig: any = { apiKey: process.env.GEMINI_API_KEY! };
+// Use custom base URL if provided (for Flow2API proxy bypassing Google restrictions)
+if (process.env.GEMINI_BASE_URL) {
+  genaiConfig.httpOptions = { baseUrl: process.env.GEMINI_BASE_URL };
+}
+const genai = new GoogleGenAI(genaiConfig);
 
 export async function POST(request: NextRequest) {
   try {
