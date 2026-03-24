@@ -39,9 +39,11 @@ export const VIDEO_MODES = [
   { value: VideoMode.Intermediate, label: '运镜控制模式 (首图+草稿+尾图)' },
 ];
 
-// Removed Flash model option to strictly enforce Pro quality
+// Model Selection for Image Generation
 export const IMAGE_MODELS = [
-  { value: 'imagen-3.0-generate-002', label: 'Imagen 3 (高精度 - 推荐)' },
+  { value: 'gemini-1.5-flash', label: 'Banana (基础 - 极速)' },
+  { value: 'gemini-exp-1206', label: 'Banana 2 (抢先 - 推荐)' },
+  { value: 'gemini-3-pro-image-preview', label: 'Banana Pro (专业 - 高清)' },
 ];
 
 export const VOICE_OPTIONS = ['Kore', 'Fenrir', 'Puck', 'Charon', 'Zephyr'];

@@ -294,12 +294,16 @@ export default function AppClient({ initialProfile }: AppClientProps) {
                             </select>
                         </div>
                     
-                        {/* Image Model Selection REMOVED - FORCED TO PRO */}
-                        <div className="col-span-1 opacity-70">
-                             <label className="block text-[10px] font-bold text-sky-400 uppercase mb-1.5">生图模型 (Model)</label>
-                             <div className="w-full bg-slate-950 border border-sky-900/50 rounded-lg p-2.5 text-xs text-sky-400 font-mono flex items-center gap-2">
-                                <Sparkles size={12} /> Banana Pro
-                             </div>
+                        {/* Image Model Selection RESTORED */}
+                        <div className="col-span-1">
+                             <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">生图模型 (Model)</label>
+                             <select 
+                                 className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-xs text-slate-200 focus:border-brand-500 outline-none"
+                                 value={state.settings.imageModel}
+                                 onChange={(e) => setState(prev => ({...prev, settings: {...prev.settings, imageModel: e.target.value}}))}
+                             >
+                                 {IMAGE_MODELS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                             </select>
                         </div>
 
                         {/* Resolution Selection */}

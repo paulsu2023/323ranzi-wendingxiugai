@@ -4,7 +4,7 @@ import { ProductData, AspectRatio, ImageResolution, SceneDraft } from "@/types";
 // Re-export constants used by server
 const GEMINI_MODEL_ANALYSIS = 'gemini-3-flash-preview';
 const GEMINI_MODEL_ANALYSIS_FALLBACK = 'gemini-3-flash-preview';
-const GEMINI_MODEL_IMAGE = 'imagen-3.0-generate-002';
+const GEMINI_MODEL_IMAGE = 'gemini-3-pro-image-preview';
 const GEMINI_MODEL_TTS = 'gemini-3-flash-preview';
 
 export const VOICE_OPTIONS = ['Kore', 'Fenrir', 'Puck', 'Charon', 'Zephyr'];
@@ -213,26 +213,48 @@ export const generateImage = async (
   const negativeConstraints = " DO NOT GENERATE: 3d render, cartoon, anime, plastic skin, blurry.";
   const finalPrompt = textPrompt + realismBoosters + negativeConstraints;
 
-  // We convert AspectRatio to the format Imagen expects if possible, else default to '16:9' or '1:1'
+  // Aspect Ratio Mapping
   let parsedAspect = '1:1';
   if (aspectRatio === '9:16') parsedAspect = '9:16';
   else if (aspectRatio === '16:9') parsedAspect = '16:9';
   else if (aspectRatio === '4:3') parsedAspect = '4:3';
   else if (aspectRatio === '3:4') parsedAspect = '3:4';
 
-  const response = await withRetry(() => client.models.generateImages({
-    model: 'imagen-3.0-generate-002',
-    prompt: finalPrompt,
+  // Handle Imagen Models (Standard Image Generation)
+  if (modelName.includes('imagen')) {
+    const response = await withRetry(() => client.models.generateImages({
+      model: modelName,
+      prompt: finalPrompt,
+      config: {
+        numberOfImages: 1,
+        outputMimeType: 'image/jpeg',
+        aspectRatio: parsedAspect as any,
+      }
+    }));
+    const base64Bytes = response.generatedImages?.[0]?.image?.imageBytes;
+    if (!base64Bytes) throw new Error("Imagen failed to return data");
+    return base64Bytes;
+  }
+
+  // Handle Gemini Multimodal Models (Banana Pro / Banana 2 equivalents)
+  const parts: any[] = [{ text: finalPrompt }];
+  referenceImages.slice(0, 3).forEach(ref => {
+    parts.unshift({ inlineData: { mimeType: 'image/jpeg', data: ref } });
+  });
+
+  const response = await withRetry<GenerateContentResponse>(() => client.models.generateContent({
+    model: modelName,
+    contents: [{ role: 'user', parts }],
     config: {
-      numberOfImages: 1,
-      outputMimeType: 'image/jpeg',
-      aspectRatio: parsedAspect as any,
-    }
+      imageConfig: { aspectRatio: parsedAspect as any, imageSize: resolution as any }
+    } as any
   }));
 
-  const base64Bytes = response.generatedImages?.[0]?.image?.imageBytes;
-  if (!base64Bytes) throw new Error("Image generating failed to return data");
-  return base64Bytes;
+  const data = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || 
+               response.candidates?.[0]?.content?.parts?.[0]?.text; // Some models return text, but we expect data
+  
+  if (!data) throw new Error("Gemini model failed to generate image data");
+  return data;
 };
 
 export const generateSpeech = async (
