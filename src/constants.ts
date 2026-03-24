@@ -1,17 +1,17 @@
 
 import { AspectRatio, VideoMode, ImageResolution } from './types';
 
-// Using Gemini 1.5 Flash for high-level reasoning/analysis (Cost efficient)
-export const GEMINI_MODEL_ANALYSIS = 'gemini-1.5-flash';
+// Using Gemini 3.0 Flash for high-level reasoning/analysis (State of the art)
+export const GEMINI_MODEL_ANALYSIS = 'gemini-3-flash-preview';
 
 // Fallback model
-export const GEMINI_MODEL_ANALYSIS_FALLBACK = 'gemini-1.5-flash';
+export const GEMINI_MODEL_ANALYSIS_FALLBACK = 'gemini-3-flash-preview';
 
 // Using Imagen 3 for high quality assets
 export const GEMINI_MODEL_IMAGE = 'imagen-3.0-generate-002'; 
 
 // TTS Model
-export const GEMINI_MODEL_TTS = 'gemini-1.5-flash';
+export const GEMINI_MODEL_TTS = 'gemini-3-flash-preview';
 
 export const TARGET_MARKETS = [
   { value: 'MX', label: 'Mexico (墨西哥)', language: 'Spanish', culture: 'Mexican/Latin American ethnicity, vibrant, warm, family-oriented and social style', disabled: false },
