@@ -4,7 +4,7 @@ import { ProductData, AspectRatio, ImageResolution, SceneDraft } from "@/types";
 // Re-export constants used by server
 const GEMINI_MODEL_ANALYSIS = 'gemini-3-flash-preview';
 const GEMINI_MODEL_ANALYSIS_FALLBACK = 'gemini-3-flash-preview';
-const GEMINI_MODEL_IMAGE = 'gemini-3-pro-image-preview';
+const GEMINI_MODEL_IMAGE = 'gemini-3.1-pro-image-preview';
 const GEMINI_MODEL_TTS = 'gemini-3-flash-preview';
 
 export const VOICE_OPTIONS = ['Kore', 'Fenrir', 'Puck', 'Charon', 'Zephyr'];
@@ -220,8 +220,8 @@ export const generateImage = async (
   else if (aspectRatio === '4:3') parsedAspect = '4:3';
   else if (aspectRatio === '3:4') parsedAspect = '3:4';
 
-  // Handle Imagen Models (Standard Image Generation)
-  if (modelName.includes('imagen')) {
+  // Handle Imagen/Specialized Image Models (Banana 2 / Banana Pro)
+  if (modelName.includes('imagen') || modelName.includes('image-preview')) {
     const response = await withRetry(() => client.models.generateImages({
       model: modelName,
       prompt: finalPrompt,
@@ -232,7 +232,7 @@ export const generateImage = async (
       }
     }));
     const base64Bytes = response.generatedImages?.[0]?.image?.imageBytes;
-    if (!base64Bytes) throw new Error("Imagen failed to return data");
+    if (!base64Bytes) throw new Error("Image Model failed to return data");
     return base64Bytes;
   }
 
