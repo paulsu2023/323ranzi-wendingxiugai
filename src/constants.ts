@@ -41,9 +41,9 @@ export const VIDEO_MODES = [
 
 // Model Selection for Image Generation
 export const IMAGE_MODELS = [
-  { value: 'gemini-3.1-flash-image-preview', label: 'Banana (基础 - 极速)' },
-  { value: 'gemini-3.1-flash-image-preview', label: 'Banana 2 (抢先 - 推荐)' },
-  { value: 'gemini-3.1-pro-image-preview', label: 'Banana Pro (专业 - 高清)' },
+  { value: 'gemini-3-pro-image-preview', label: 'Banana (基础 - 极速)' },
+  { value: 'gemini-3-pro-image-preview', label: 'Banana 2 (抢先 - 推荐)' },
+  { value: 'gemini-3-pro-image-preview', label: 'Banana Pro (专业 - 高清)' },
 ];
 
 export const VOICE_OPTIONS = ['Kore', 'Fenrir', 'Puck', 'Charon', 'Zephyr'];
