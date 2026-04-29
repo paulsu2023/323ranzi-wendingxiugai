@@ -44,9 +44,13 @@ function extractVideoUrl(content: string) {
   return match?.[1]?.trim();
 }
 
-function isUnsafeGenerationError(error: unknown) {
+function isPolicyGenerationError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error || '');
-  return message.toUpperCase().includes('PUBLIC_ERROR_UNSAFE_GENERATION');
+  const normalized = message.toUpperCase();
+  return (
+    normalized.includes('PUBLIC_ERROR_UNSAFE_GENERATION') ||
+    normalized.includes('PUBLIC_ERROR_SEXUAL')
+  );
 }
 
 function normalizeVideoPrompt(prompt: string) {
@@ -59,6 +63,9 @@ function normalizeVideoPrompt(prompt: string) {
     const parsed = JSON.parse(trimmed);
     if (typeof parsed?.prompt === 'string') {
       return parsed.prompt.trim();
+    }
+    if (typeof parsed?.prompt?.videoPrompt === 'string') {
+      return parsed.prompt.videoPrompt.trim();
     }
     if (parsed?.veo_production_manifest) {
       return JSON.stringify(parsed, null, 2);
@@ -78,6 +85,21 @@ function sanitizeVideoPrompt(prompt: string) {
     [/\bone-piece\b/gi, 'summer outfit'],
     [/\bswim shorts?\b/gi, 'shorts'],
     [/\bbikini\b/gi, 'beach outfit'],
+    [/\bnightgown\b/gi, 'loungewear dress'],
+    [/\blingerie\b/gi, 'loungewear'],
+    [/\bunderwear\b/gi, 'apparel'],
+    [/\bblack lace trim\b/gi, 'decorative trim'],
+    [/\blace trim\b/gi, 'decorative trim'],
+    [/\bhigh slit\b/gi, 'side seam detail'],
+    [/\bside slit\b/gi, 'side seam detail'],
+    [/\bcurvy woman\b/gi, 'adult fashion model'],
+    [/\bcurvy\b/gi, 'confident'],
+    [/\bplayful\b/gi, 'friendly'],
+    [/\bseductive\b/gi, 'confident'],
+    [/\bsexy\b/gi, 'stylish'],
+    [/\bruns? her hand down\b/gi, 'gently points to'],
+    [/\bgently runs? her hand down\b/gi, 'gently points to'],
+    [/\bhand down the side\b/gi, 'hand near the side seam'],
     [/\bv-neck\b/gi, 'soft neckline'],
     [/\bcriss-cross back straps?\b/gi, 'clean back detail'],
     [/\bplus-size\b/gi, 'confident'],
@@ -111,6 +133,7 @@ function sanitizeVideoPrompt(prompt: string) {
     .filter(Boolean)
     .join('\n')
     .replace(/\s{2,}/g, ' ')
+    .concat(' Keep the motion focused on fabric texture and product construction only. No sensual posing, no bedroom intimacy, no erotic framing, no body-focused camera movement.')
     .trim();
 }
 
@@ -331,7 +354,7 @@ export async function generateVideoWithFlow(params: {
     result = await callFlowChat(model, buildContent(prompt));
   } catch (error) {
     const sanitizedPrompt = sanitizeVideoPrompt(basePrompt);
-    if (!isUnsafeGenerationError(error) || !sanitizedPrompt || sanitizedPrompt === basePrompt) {
+    if (!isPolicyGenerationError(error) || !sanitizedPrompt || sanitizedPrompt === basePrompt) {
       throw error;
     }
     result = await callFlowChat(model, buildContent(sanitizedPrompt));
