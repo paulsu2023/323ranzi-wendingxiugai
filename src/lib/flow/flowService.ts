@@ -61,14 +61,14 @@ function normalizeVideoPrompt(prompt: string) {
 
   try {
     const parsed = JSON.parse(trimmed);
+    if (parsed?.veo_production_manifest) {
+      return JSON.stringify(parsed, null, 2);
+    }
     if (typeof parsed?.prompt === 'string') {
       return parsed.prompt.trim();
     }
     if (typeof parsed?.prompt?.videoPrompt === 'string') {
       return parsed.prompt.videoPrompt.trim();
-    }
-    if (parsed?.veo_production_manifest) {
-      return JSON.stringify(parsed, null, 2);
     }
   } catch {
     return trimmed;
@@ -122,10 +122,39 @@ function sanitizeVideoPrompt(prompt: string) {
     [/\bclose-up shot focusing on the .*?details\b/gi, 'close-up shot focusing on the outfit details'],
   ];
 
-  let sanitized = prompt;
-  for (const [pattern, replacement] of replacements) {
-    sanitized = sanitized.replace(pattern, replacement);
+  const applyReplacements = (value: string) => {
+    let sanitized = value;
+    for (const [pattern, replacement] of replacements) {
+      sanitized = sanitized.replace(pattern, replacement);
+    }
+    return sanitized;
+  };
+
+  if (looksLikeJsonPrompt(prompt)) {
+    try {
+      const parsed = JSON.parse(prompt);
+      const sanitizeJsonStrings = (value: any): any => {
+        if (typeof value === 'string') return applyReplacements(value).replace(/\s{2,}/g, ' ').trim();
+        if (Array.isArray(value)) return value.map(sanitizeJsonStrings);
+        if (value && typeof value === 'object') {
+          return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, sanitizeJsonStrings(child)]));
+        }
+        return value;
+      };
+
+      const sanitized = sanitizeJsonStrings(parsed);
+      const mandates = sanitized?.veo_production_manifest?.director_mandates;
+      if (mandates) {
+        mandates.negative_mandates = Array.isArray(mandates.negative_mandates) ? mandates.negative_mandates : [];
+        mandates.negative_mandates.push('No sensual posing, no bedroom intimacy, no erotic framing, no body-focused camera movement.');
+      }
+      return JSON.stringify(sanitized, null, 2);
+    } catch {
+      // Fall back to plain text sanitization below.
+    }
   }
+
+  let sanitized = applyReplacements(prompt);
 
   return sanitized
     .split('\n')

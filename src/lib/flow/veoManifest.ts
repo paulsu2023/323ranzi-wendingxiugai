@@ -83,6 +83,54 @@ export function buildVeoProductionManifest(scene: SceneLike) {
   return buildVeoProductionManifestWithVoice(scene);
 }
 
+function parseJsonObject(value?: string | null) {
+  const text = normalizeText(value);
+  if (!text.startsWith('{') || !text.endsWith('}')) return null;
+
+  try {
+    const parsed = JSON.parse(text);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function extractLegacyVideoPrompt(parsed: any) {
+  if (typeof parsed?.prompt === 'string') return normalizeText(parsed.prompt);
+  if (typeof parsed?.prompt?.videoPrompt === 'string') return normalizeText(parsed.prompt.videoPrompt);
+  if (typeof parsed?.videoPrompt === 'string') return normalizeText(parsed.videoPrompt);
+  return '';
+}
+
+export function hasVeoProductionManifest(value?: string | null) {
+  const parsed = parseJsonObject(value);
+  return Boolean(parsed?.veo_production_manifest);
+}
+
+export function normalizeVeoProductionManifestPrompt(
+  scene: SceneLike,
+  prompt?: string | null,
+  options: VoiceOptions = {}
+) {
+  const text = normalizeText(prompt);
+  const parsed = parseJsonObject(text);
+
+  if (parsed?.veo_production_manifest) {
+    return JSON.stringify(parsed, null, 2);
+  }
+
+  const legacyVideoPrompt = parsed ? extractLegacyVideoPrompt(parsed) : text;
+  const sceneForManifest = legacyVideoPrompt
+    ? {
+        ...scene,
+        action_en: normalizeText(scene.action_en || scene.action || legacyVideoPrompt),
+        action: normalizeText(scene.action || legacyVideoPrompt),
+      }
+    : scene;
+
+  return buildVeoProductionManifestWithVoice(sceneForManifest, options);
+}
+
 export function buildVeoProductionManifestWithVoice(scene: SceneLike, options: VoiceOptions = {}) {
   const visual = normalizeText(scene.visual_en || scene.visual) || 'A premium TikTok UGC product scene with a realistic subject.';
   const action = normalizeText(scene.action_en || scene.action) || 'The subject demonstrates the product naturally with stable, realistic motion.';

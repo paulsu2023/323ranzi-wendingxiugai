@@ -6,7 +6,7 @@ import { StoryboardScene, VideoMode, AspectRatio, GeneratedAsset, GeneratedAsset
 import { generateImageAPI, generateVideoAPI, optimizePromptAPI } from '@/services/apiClient';
 import { AnalysisLoader } from './AnalysisLoader';
 import { CAMERA_DEVICES, IMAGE_MODELS, SHOOTING_STYLES } from '@/constants';
-import { buildVeoProductionManifestWithVoice } from '@/lib/flow/veoManifest';
+import { hasVeoProductionManifest, normalizeVeoProductionManifestPrompt } from '@/lib/flow/veoManifest';
 
 const buildMediaProxyUrl = (url: string, filename?: string, download = false) => {
   if (!url || url.startsWith('data:')) {
@@ -308,10 +308,12 @@ export const Storyboard: React.FC<Props> = ({
 
   const selectedImageModel = IMAGE_MODELS.find((model) => model.value === imageModel)?.label || imageModel;
 
-  const getVideoManifestPrompt = (scene: StoryboardScene) =>
-      scene.prompt.videoPromptCustom
+  const getVideoManifestPrompt = (scene: StoryboardScene) => {
+      const customPrompt = scene.prompt.videoPromptCustom
           ? (scene.prompt.videoPrompt || scene.prompt.imagePrompt || '')
-          : buildVeoProductionManifestWithVoice(scene, { voiceName: assignedVoice });
+          : undefined;
+      return normalizeVeoProductionManifestPrompt(scene, customPrompt, { voiceName: assignedVoice });
+  };
 
   const buildStoryboardVideoPrompt = (scene: StoryboardScene) => {
       const manifestPrompt = getVideoManifestPrompt(scene);
@@ -678,6 +680,9 @@ export const Storyboard: React.FC<Props> = ({
         const cameraPrompt = CAMERA_DEVICES.find((c: any) => c.value === cameraDevice)?.prompt || '';
         const stylePrompt = SHOOTING_STYLES.find((s: any) => s.value === shootingStyle)?.prompt || '';
         const prompt = buildStoryboardVideoPrompt(scene);
+        if (!hasVeoProductionManifest(prompt)) {
+            throw new Error('图片转视频 JSON Manifest 格式无效：缺少 veo_production_manifest');
+        }
         const primaryResult = await generateVideoAPI(prompt, aspectRatio, referenceImages, cameraPrompt, stylePrompt, 1);
 
         if (!isLatestGeneration(generationKey, generationToken)) {
@@ -732,7 +737,7 @@ export const Storyboard: React.FC<Props> = ({
   const updatePrompt = (id: string, value: string) => {
       const scene = scenes.find(s => s.id === id);
       if (scene) {
-          onUpdateScene(id, { prompt: { ...scene.prompt, videoPrompt: value, videoPromptCustom: true } });
+          onUpdateScene(id, { prompt: { ...scene.prompt, imagePrompt: value, videoPrompt: value, videoPromptCustom: true } });
       }
   }
 

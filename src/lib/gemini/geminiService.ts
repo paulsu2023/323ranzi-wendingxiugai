@@ -1,7 +1,7 @@
 import { GoogleGenAI, Type, Modality, GenerateContentResponse } from "@google/genai";
 import { ProductData, AspectRatio, ImageResolution, SceneDraft } from "@/types";
 import { ANALYSIS_MODELS, GEMINI_MODEL_ANALYSIS, GEMINI_MODEL_ANALYSIS_FALLBACK, GEMINI_MODEL_TTS } from "@/constants";
-import { buildVeoProductionManifest } from "@/lib/flow/veoManifest";
+import { buildVeoProductionManifest, normalizeVeoProductionManifestPrompt } from "@/lib/flow/veoManifest";
 
 const GEMINI_MODEL_IMAGE = 'gemini-3.1-pro-image-preview';
 
@@ -787,8 +787,10 @@ async function localizeDisplayFieldsToChinese(client: GoogleGenAI, result: any) 
 function normalizeScene(scene: any, index: number, masterReference?: string): SceneDraft {
   const promptText = normalizeWhitespace(scene?.prompt?.textPrompt) ||
     buildFallbackImagePrompt(scene, masterReference);
-  const videoPrompt = normalizeWhitespace(scene?.prompt?.videoPrompt || scene?.prompt?.imagePrompt) ||
-    buildVeoProductionManifest(scene);
+  const videoPrompt = normalizeVeoProductionManifestPrompt(
+    scene,
+    normalizeWhitespace(scene?.prompt?.videoPrompt || scene?.prompt?.imagePrompt) || buildVeoProductionManifest(scene)
+  );
 
   return {
     id: String(scene?.id || `scene-${index + 1}`),
@@ -1169,7 +1171,10 @@ Return a high-conversion TikTok storyboard package with deep product analysis, c
           referenceHarness.imageClauses
         ),
         videoPrompt: enforceVideoPromptHarness(
-          normalizeWhitespace(genderLockedScene?.prompt?.videoPrompt || genderLockedScene?.prompt?.imagePrompt) || buildVeoProductionManifest(genderLockedScene),
+          normalizeVeoProductionManifestPrompt(
+            genderLockedScene,
+            normalizeWhitespace(genderLockedScene?.prompt?.videoPrompt || genderLockedScene?.prompt?.imagePrompt)
+          ),
           referenceHarness.videoPositiveMandates,
           referenceHarness.videoNegativeMandates
         ),
