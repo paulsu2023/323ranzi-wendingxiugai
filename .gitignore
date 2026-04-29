@@ -6,6 +6,7 @@ node_modules
 .next/
 out/
 build/
+*.tsbuildinfo
 
 # Environment variables - NEVER commit these
 .env
@@ -19,3 +20,7 @@ build/
 *.pem
 *.log
 .vercel
+
+# Local runtime helpers / generated files
+run.stdout.log
+run.stderr.log

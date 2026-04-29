@@ -1,22 +1,31 @@
 
 import { AspectRatio, VideoMode, ImageResolution } from './types';
 
-// Using Gemini 3.0 Flash for high-level reasoning/analysis (State of the art)
+// Analysis runs on Google's official Gemini API.
 export const GEMINI_MODEL_ANALYSIS = 'gemini-3-flash-preview';
 
 // Fallback model
-export const GEMINI_MODEL_ANALYSIS_FALLBACK = 'gemini-3-flash-preview';
+export const GEMINI_MODEL_ANALYSIS_FALLBACK = 'gemini-2.5-flash-lite';
+
+export const ANALYSIS_MODELS = [
+  { value: 'gemini-3-flash-preview', label: 'Gemini 3.0 Flash' },
+  { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+  { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite' },
+  { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+  { value: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash Lite Preview' },
+  { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro Preview' },
+] as const;
 
 // Using Imagen 3 for high quality assets
 export const GEMINI_MODEL_IMAGE = 'imagen-3.0-generate-002'; 
 
 // TTS Model
-export const GEMINI_MODEL_TTS = 'gemini-3-flash-preview';
+export const GEMINI_MODEL_TTS = 'gemini-2.5-flash-preview-tts';
 
 export const TARGET_MARKETS = [
+  { value: 'US', label: 'United States (美国)', language: 'English', culture: 'Western, diverse American style, energetic and direct', disabled: false },
   { value: 'MX', label: 'Mexico (墨西哥)', language: 'Spanish', culture: 'Mexican/Latin American ethnicity, vibrant, warm, family-oriented and social style', disabled: false },
   { value: 'BR', label: 'Brazil (巴西)', language: 'Portuguese', culture: 'Brazilian ethnicity, vibrant, diverse, and energetic South American style', disabled: false },
-  { value: 'US', label: 'United States (美国)', language: 'English', culture: 'Western, diverse American style, energetic and direct', disabled: false },
 ];
 
 export const ASPECT_RATIOS = [
@@ -41,9 +50,10 @@ export const VIDEO_MODES = [
 
 // Model Selection for Image Generation
 export const IMAGE_MODELS = [
-  { value: 'gemini-3-pro-image-preview', label: 'Banana (基础 - 极速)' },
-  { value: 'gemini-3-pro-image-preview', label: 'Banana 2 (抢先 - 推荐)' },
-  { value: 'gemini-3-pro-image-preview', label: 'Banana Pro (专业 - 高清)' },
+  { value: 'gemini-2.5-flash-image', label: 'Flow Flash (极速)' },
+  { value: 'gemini-3.0-pro-image', label: 'Flow Pro (高清)' },
+  { value: 'gemini-3.1-flash-image', label: 'Flow Narwhal (新版)' },
+  { value: 'imagen-4.0-generate-preview', label: 'Flow Imagen (稳妥)' },
 ];
 
 export const VOICE_OPTIONS = ['Kore', 'Fenrir', 'Puck', 'Charon', 'Zephyr'];
@@ -71,4 +81,4 @@ export const CREDIT_PACKAGES = [
   { id: 'pro', name: '专业包', credits: 800, price: 29900, currency: 'cny', description: '专业用户首选', popular: false }
 ] as const;
 
-export const CREDIT_COSTS = { ANALYZE: 5, IMAGE_GEN: 2, AUDIO_GEN: 1 } as const;
+export const CREDIT_COSTS = { ANALYZE: 5, IMAGE_GEN: 2, AUDIO_GEN: 1, VIDEO_GEN: 6 } as const;

@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useRef } from 'react';
-import { Upload, X, Maximize2, Video, Film } from 'lucide-react';
+import { Upload, X, Maximize2, Video } from 'lucide-react';
+import { ReferenceVideoData } from '@/types';
 
 interface Props {
   images: string[];
@@ -131,15 +132,99 @@ export const ImageUploader: React.FC<Props> = ({
 };
 
 interface VideoProps {
-    video: { data: string; mimeType: string } | null | undefined;
-    onVideoChange: (video: { data: string; mimeType: string } | null) => void;
+    video: ReferenceVideoData | null | undefined;
+    onVideoChange: (video: ReferenceVideoData | null) => void;
     label?: string;
 }
 
 export const VideoUploader: React.FC<VideoProps> = ({ video, onVideoChange, label }) => {
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const extractVideoFrames = (file: File): Promise<ReferenceVideoData> => new Promise((resolve, reject) => {
+        const previewUrl = URL.createObjectURL(file);
+        const videoEl = document.createElement('video');
+        videoEl.preload = 'metadata';
+        videoEl.src = previewUrl;
+        videoEl.muted = true;
+        videoEl.playsInline = true;
+
+        let finished = false;
+
+        const cleanup = () => {
+            videoEl.pause();
+            videoEl.removeAttribute('src');
+            videoEl.load();
+        };
+
+        const fail = (error: unknown) => {
+            if (finished) return;
+            finished = true;
+            URL.revokeObjectURL(previewUrl);
+            cleanup();
+            reject(error instanceof Error ? error : new Error('参考视频解析失败'));
+        };
+
+        const captureFrameAt = (time: number) => new Promise<string>((resolveFrame, rejectFrame) => {
+            const canvas = document.createElement('canvas');
+            canvas.width = videoEl.videoWidth || 720;
+            canvas.height = videoEl.videoHeight || 1280;
+
+            const onSeeked = () => {
+                try {
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) throw new Error('无法创建视频帧画布');
+                    ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
+                    const jpegDataUrl = canvas.toDataURL('image/jpeg', 0.82);
+                    resolveFrame(jpegDataUrl.split(',')[1]);
+                } catch (error) {
+                    rejectFrame(error);
+                } finally {
+                    videoEl.removeEventListener('seeked', onSeeked);
+                }
+            };
+
+            videoEl.addEventListener('seeked', onSeeked, { once: true });
+            videoEl.currentTime = Math.max(0, Math.min(time, Math.max((videoEl.duration || 0) - 0.1, 0)));
+        });
+
+        videoEl.onloadedmetadata = async () => {
+            try {
+                const duration = Math.max(videoEl.duration || 0, 0.1);
+                const samplePoints = Array.from(new Set([
+                    0,
+                    Math.min(duration * 0.25, Math.max(duration - 0.1, 0)),
+                    Math.min(duration * 0.5, Math.max(duration - 0.1, 0)),
+                    Math.min(duration * 0.8, Math.max(duration - 0.1, 0)),
+                ]));
+
+                const analysisFrames: string[] = [];
+                for (const point of samplePoints) {
+                    analysisFrames.push(await captureFrameAt(point));
+                }
+
+                if (finished) return;
+                finished = true;
+
+                resolve({
+                    previewUrl,
+                    mimeType: file.type || 'video/mp4',
+                    fileName: file.name,
+                    sizeBytes: file.size,
+                    durationSeconds: Number(duration.toFixed(2)),
+                    width: videoEl.videoWidth || 0,
+                    height: videoEl.videoHeight || 0,
+                    analysisFrames,
+                });
+                cleanup();
+            } catch (error) {
+                fail(error);
+            }
+        };
+
+        videoEl.onerror = () => fail(new Error('参考视频读取失败'));
+    });
+
+    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (!e.target.files || !e.target.files[0]) return;
         const file = e.target.files[0];
         const MAX_VIDEO_SIZE = 50 * 1024 * 1024; // 50MB limit
@@ -148,13 +233,19 @@ export const VideoUploader: React.FC<VideoProps> = ({ video, onVideoChange, labe
             e.target.value = '';
             return;
         }
-        const reader = new FileReader();
-        reader.onloadend = () => {
-            const base64 = (reader.result as string).split(',')[1];
-            onVideoChange({ data: base64, mimeType: file.type });
-        };
-        reader.readAsDataURL(file);
-        e.target.value = '';
+
+        try {
+            if (video?.previewUrl) {
+                URL.revokeObjectURL(video.previewUrl);
+            }
+            const parsedVideo = await extractVideoFrames(file);
+            onVideoChange(parsedVideo);
+        } catch (error) {
+            console.error('[VideoUploader] parse failed', error);
+            alert(`参考视频解析失败：${error instanceof Error ? error.message : '未知错误'}`);
+        } finally {
+            e.target.value = '';
+        }
     };
 
     return (
@@ -168,14 +259,20 @@ export const VideoUploader: React.FC<VideoProps> = ({ video, onVideoChange, labe
                  {video ? (
                     <div className="relative w-full h-full group">
                         <video 
-                            src={`data:${video.mimeType};base64,${video.data}`} 
+                            src={video.previewUrl}
                             className="w-full h-full object-cover"
                             controls={false}
                             muted
                         />
                         <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm z-10">
                              <button 
-                                onClick={(e) => { e.stopPropagation(); onVideoChange(null); }}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (video.previewUrl) {
+                                        URL.revokeObjectURL(video.previewUrl);
+                                    }
+                                    onVideoChange(null);
+                                }}
                                 className="px-3 py-1.5 bg-red-500/90 hover:bg-red-500 rounded text-white text-xs font-bold flex items-center gap-2 shadow-lg"
                             >
                                 <X size={14} /> Remove Video

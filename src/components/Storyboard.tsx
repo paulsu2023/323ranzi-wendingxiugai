@@ -1,16 +1,48 @@
 "use client";
 
-import React, { useState, useRef } from 'react';
-import { Play, Image as ImageIcon, Wand2, Copy, ChevronDown, ChevronUp, RefreshCw, ArrowRight, Maximize2, Mic, Pause, Download, Edit3, X, Check, FileJson, Lock, Zap, Sparkles, Video, Camera, Activity, FileText, Square } from 'lucide-react';
-import { StoryboardScene, VideoMode, AspectRatio, GeneratedAsset, ImageResolution } from '@/types';
-import { generateImageAPI, generateSpeechAPI, optimizePromptAPI } from '@/services/apiClient';
+import React, { useEffect, useRef, useState } from 'react';
+import { Play, Image as ImageIcon, Wand2, Copy, ChevronDown, ChevronUp, RefreshCw, ArrowRight, Maximize2, Pause, Download, Edit3, X, Check, FileJson, Lock, Zap, Sparkles, Video, Camera, Activity, FileText, Square } from 'lucide-react';
+import { StoryboardScene, VideoMode, AspectRatio, GeneratedAsset, GeneratedAssetVariant, ImageResolution } from '@/types';
+import { generateImageAPI, generateVideoAPI, optimizePromptAPI } from '@/services/apiClient';
 import { AnalysisLoader } from './AnalysisLoader';
-import { CAMERA_DEVICES, SHOOTING_STYLES } from '@/constants';
+import { CAMERA_DEVICES, IMAGE_MODELS, SHOOTING_STYLES } from '@/constants';
+import { buildVeoProductionManifestWithVoice } from '@/lib/flow/veoManifest';
 
-const AudioPlayer: React.FC<{ url: string }> = ({ url }) => {
-  return (
-    <audio controls className="w-full h-8 mt-2 opacity-80 hover:opacity-100 transition-opacity" src={url} />
-  );
+const buildMediaProxyUrl = (url: string, filename?: string, download = false) => {
+  if (!url || url.startsWith('data:')) {
+    return url;
+  }
+
+  const params = new URLSearchParams({ url });
+  if (filename) {
+    params.set('filename', filename);
+  }
+  if (download) {
+    params.set('download', '1');
+  }
+
+  return `/api/media?${params.toString()}`;
+};
+
+const buildVariantDownloadName = (
+  assetType: GeneratedAsset['type'] | undefined,
+  sceneIndex: number | undefined,
+  variantIndex: number,
+  mimeType?: string
+) => {
+  const extension = assetType === 'video'
+    ? 'mp4'
+    : mimeType?.includes('png')
+      ? 'png'
+      : assetType === 'audio'
+        ? 'wav'
+        : 'jpg';
+
+  if (assetType === 'video') {
+    return `分镜${sceneIndex || 1}-${variantIndex}.${extension}`;
+  }
+
+  return `分镜${sceneIndex || 1}_${variantIndex}.${extension}`;
 };
 
 interface AssetCardProps {
@@ -19,7 +51,7 @@ interface AssetCardProps {
   loading?: boolean;
   onGen: () => void;
   onStop?: () => void;
-  onPreview: (url: string, type: 'image' | 'audio') => void;
+  onPreview: (url: string, type: 'image' | 'video') => void;
   onViewPrompt: () => void;
   icon: React.ReactNode;
   highlight?: boolean;
@@ -28,11 +60,40 @@ interface AssetCardProps {
   sceneIndex?: number;
   type?: string;
   aspectRatio: AspectRatio;
+  onSelectVariant?: (variant: GeneratedAssetVariant) => void;
 }
 
 const AssetCard: React.FC<AssetCardProps> = ({ 
-    label, asset, loading, onGen, onStop, onPreview, onViewPrompt, icon, highlight, disabled, title, sceneIndex, type, aspectRatio
+    label, asset, loading, onGen, onStop, onPreview, onViewPrompt, icon, highlight, disabled, title, sceneIndex, type, aspectRatio, onSelectVariant
 }) => {
+    const extension = asset?.type === 'video' ? 'mp4' : asset?.mimeType.includes('png') ? 'png' : asset?.type === 'audio' ? 'wav' : 'jpg';
+    const downloadName = asset?.type === 'video'
+        ? buildVariantDownloadName(asset.type, sceneIndex, 1, asset.mimeType)
+        : `${title || 'Scene'}_Scene${sceneIndex}_${type}.${extension}`;
+    const mediaHref = asset ? buildMediaProxyUrl(asset.url, downloadName, false) : '#';
+    const downloadHref = asset
+        ? asset.url.startsWith('data:')
+            ? asset.url
+            : buildMediaProxyUrl(asset.url, downloadName, true)
+        : '#';
+
+    const handleDownloadAllVariants = () => {
+        if (!asset?.variants || asset.variants.length === 0) return;
+
+        asset.variants.forEach((variant, index) => {
+            const filename = buildVariantDownloadName(asset.type, sceneIndex, index + 1, variant.mimeType);
+            const href = variant.url.startsWith('data:')
+                ? variant.url
+                : buildMediaProxyUrl(variant.url, filename, true);
+            const link = document.createElement('a');
+            link.href = href;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        });
+    };
+
     // Determine aspect ratio class
     const getAspectRatioClass = () => {
         switch(aspectRatio) {
@@ -53,9 +114,28 @@ const AssetCard: React.FC<AssetCardProps> = ({
                     {icon} {label}
                 </span>
                 {asset && (
-                    <button onClick={onViewPrompt} className="text-slate-500 hover:text-white transition-colors" title="查看提示词">
-                        <Sparkles size={10} />
-                    </button>
+                    <div className="flex items-center gap-2">
+                        {asset.type === 'video' && asset.variants && asset.variants.length > 1 && (
+                            <button
+                                onClick={handleDownloadAllVariants}
+                                className="text-slate-500 hover:text-white transition-colors"
+                                title="下载全部候选视频"
+                            >
+                                <Download size={10} />
+                            </button>
+                        )}
+                        <a
+                            href={downloadHref}
+                            download={downloadName}
+                            className="text-slate-500 hover:text-white transition-colors"
+                            title="直接下载"
+                        >
+                            <Download size={10} />
+                        </a>
+                        <button onClick={onViewPrompt} className="text-slate-500 hover:text-white transition-colors" title="查看提示词">
+                            <Sparkles size={10} />
+                        </button>
+                    </div>
                 )}
             </div>
 
@@ -75,24 +155,47 @@ const AssetCard: React.FC<AssetCardProps> = ({
                     </div>
                 ) : asset ? (
                     <>
-                        <img 
-                            src={asset.url} 
-                            alt={label} 
-                            className="w-full h-full object-cover"
-                        />
+                        {asset.type === 'video' ? (
+                            <video
+                                key={mediaHref}
+                                src={mediaHref}
+                                className="w-full h-full object-cover"
+                                muted
+                                playsInline
+                                autoPlay
+                                loop
+                                controls
+                                preload="metadata"
+                            />
+                        ) : (
+                            <img 
+                                src={mediaHref} 
+                                alt={label} 
+                                className="w-full h-full object-cover"
+                            />
+                        )}
                         {/* Overlay Actions */}
                         <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2 backdrop-blur-sm">
                             <button 
-                                onClick={() => onPreview(asset.url, 'image')}
+                                onClick={() => onPreview(mediaHref, asset.type === 'video' ? 'video' : 'image')}
                                 className="p-2 bg-brand-600 hover:bg-brand-500 rounded-full text-white shadow-lg transform hover:scale-110 transition-all"
                                 title="预览大图"
                             >
                                 <Maximize2 size={16} />
                             </button>
                             <div className="flex gap-2">
+                                {asset.type === 'video' && asset.variants && asset.variants.length > 1 && (
+                                    <button
+                                        onClick={handleDownloadAllVariants}
+                                        className="p-2 bg-slate-700 hover:bg-slate-600 rounded-full text-white shadow-lg transition-all"
+                                        title="下载全部候选视频"
+                                    >
+                                        <Download size={14} />
+                                    </button>
+                                )}
                                 <a 
-                                    href={asset.url} 
-                                    download={`${title || 'Scene'}_Scene${sceneIndex}_${type}.jpg`}
+                                    href={downloadHref}
+                                    download={downloadName}
                                     className="p-2 bg-slate-700 hover:bg-slate-600 rounded-full text-white shadow-lg transition-all"
                                     title="下载"
                                 >
@@ -107,6 +210,32 @@ const AssetCard: React.FC<AssetCardProps> = ({
                                 </button>
                             </div>
                         </div>
+                        {asset.variants && asset.variants.length > 1 && onSelectVariant && (
+                            <div className="absolute left-2 right-2 bottom-2 flex gap-1 overflow-x-auto rounded-lg bg-black/55 p-1 backdrop-blur-sm">
+                                {asset.variants.map((variant, index) => {
+                                    const thumbUrl = asset.type === 'image'
+                                        ? (variant.url.startsWith('data:')
+                                            ? variant.url
+                                            : buildMediaProxyUrl(variant.url, `${downloadName}-variant-${index + 1}.jpg`, false))
+                                        : '';
+                                    const isActive = variant.url === asset.url;
+                                    return (
+                                        <button
+                                            key={`${variant.url}-${index}`}
+                                            onClick={() => onSelectVariant(variant)}
+                                            className={`flex-shrink-0 overflow-hidden rounded border transition-colors ${asset.type === 'image' ? 'h-12 w-10' : 'px-2 py-1 text-[10px]'} ${isActive ? 'border-brand-400 text-brand-300' : 'border-slate-700 text-slate-300 hover:border-slate-500'}`}
+                                            title={`${asset.type === 'image' ? '候选图' : '候选视频'} ${index + 1}`}
+                                        >
+                                            {asset.type === 'image' ? (
+                                                <img src={thumbUrl} alt={`variant-${index + 1}`} className="h-full w-full object-cover" />
+                                            ) : (
+                                                <span>{`视频${index + 1}`}</span>
+                                            )}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        )}
                     </>
                 ) : (
                     <div className="flex flex-col items-center gap-2 p-4 text-center mt-8">
@@ -148,7 +277,7 @@ interface Props {
   backgroundImages: string[];
   assignedVoice: string;
   onUpdateScene: (id: string, updates: Partial<StoryboardScene>) => void;
-  onPreview: (url: string, type: 'image' | 'audio') => void;
+  onPreview: (url: string, type: 'image' | 'video') => void;
   productTitle: string;
 }
 
@@ -162,6 +291,12 @@ export const Storyboard: React.FC<Props> = ({
   
   // Track abort controllers for each scene and generation type
   const abortControllers = useRef<Map<string, AbortController>>(new Map());
+  const scenesRef = useRef(scenes);
+  const generationTokens = useRef<Map<string, number>>(new Map());
+
+  useEffect(() => {
+    scenesRef.current = scenes;
+  }, [scenes]);
 
   const toggleExpand = (id: string) => {
     setExpandedScene(expandedScene === id ? null : id);
@@ -169,6 +304,136 @@ export const Storyboard: React.FC<Props> = ({
 
   const copyToClipboard = (text: string) => {
       navigator.clipboard.writeText(text);
+  };
+
+  const selectedImageModel = IMAGE_MODELS.find((model) => model.value === imageModel)?.label || imageModel;
+
+  const getVideoManifestPrompt = (scene: StoryboardScene) =>
+      scene.prompt.videoPromptCustom
+          ? (scene.prompt.videoPrompt || scene.prompt.imagePrompt || '')
+          : buildVeoProductionManifestWithVoice(scene, { voiceName: assignedVoice });
+
+  const buildStoryboardVideoPrompt = (scene: StoryboardScene) => {
+      const manifestPrompt = getVideoManifestPrompt(scene);
+      if (manifestPrompt) {
+          return manifestPrompt;
+      }
+      return [
+          scene.prompt.textPrompt || scene.visual_en || scene.visual,
+          scene.action_en || scene.action ? `Action: ${scene.action_en || scene.action}` : '',
+          scene.camera_en || scene.camera ? `Camera movement: ${scene.camera_en || scene.camera}` : '',
+      ].filter(Boolean).join('\n');
+  };
+
+  const getSceneVideoReferenceImages = (scene: StoryboardScene) => {
+      return [
+          scene.startImage?.data,
+          scene.middleImage?.data,
+          scene.endImage?.data,
+      ].filter((image): image is string => Boolean(image));
+  };
+
+  const createGenerationToken = (key: string) => {
+      const nextToken = (generationTokens.current.get(key) || 0) + 1;
+      generationTokens.current.set(key, nextToken);
+      return nextToken;
+  };
+
+  const isLatestGeneration = (key: string, token: number) => {
+      return generationTokens.current.get(key) === token;
+  };
+
+  const mergeVariants = (
+      existing: GeneratedAssetVariant[] = [],
+      incoming: GeneratedAssetVariant[] = []
+  ) => {
+      const seen = new Set<string>();
+      return [...existing, ...incoming].filter((variant) => {
+          const key = variant.data || variant.url;
+          if (!key || seen.has(key)) {
+              return false;
+          }
+          seen.add(key);
+          return true;
+      });
+  };
+
+  const getSceneAsset = (sceneId: string, type: 'start' | 'middle' | 'end' | 'video') => {
+      const currentScene = scenesRef.current.find((item) => item.id === sceneId);
+      if (!currentScene) return undefined;
+      if (type === 'start') return currentScene.startImage;
+      if (type === 'middle') return currentScene.middleImage;
+      if (type === 'end') return currentScene.endImage;
+      return currentScene.video;
+  };
+
+  const buildImageAsset = (
+      base64: string,
+      images?: Array<{ url: string; mimeType: string; base64: string }>,
+      currentAsset?: GeneratedAsset
+  ): GeneratedAsset => {
+      const primaryUrl = `data:image/jpeg;base64,${base64}`;
+      const incomingVariants = (images && images.length > 0 ? images : [{ url: primaryUrl, mimeType: 'image/jpeg', base64 }]).map((image) => ({
+          url: image.url.startsWith('data:') ? image.url : `data:${image.mimeType};base64,${image.base64}`,
+          mimeType: image.mimeType,
+          data: image.base64,
+      }));
+      const variants = mergeVariants(currentAsset?.variants || [], incomingVariants);
+      const activeVariant = variants.find((variant) =>
+          currentAsset?.data ? variant.data === currentAsset.data : variant.url === currentAsset?.url
+      ) || variants[0];
+
+      return {
+          type: 'image',
+          url: activeVariant?.url || primaryUrl,
+          mimeType: activeVariant?.mimeType || 'image/jpeg',
+          data: activeVariant?.data || base64,
+          variants,
+      };
+  };
+
+  const buildVideoAsset = (
+      url: string,
+      videos?: Array<{ url: string; mimeType: string }>,
+      currentAsset?: GeneratedAsset
+  ): GeneratedAsset => {
+      const incomingVariants = (videos && videos.length > 0 ? videos : [{ url, mimeType: 'video/mp4' }]).map((video) => ({
+          url: video.url,
+          mimeType: video.mimeType,
+      }));
+      const variants = mergeVariants(currentAsset?.variants || [], incomingVariants);
+      const activeVariant = variants.find((variant) => variant.url === currentAsset?.url) || variants[0];
+
+      return {
+          type: 'video',
+          url: activeVariant?.url || url,
+          mimeType: activeVariant?.mimeType || 'video/mp4',
+          variants,
+      };
+  };
+
+  const handleSelectImageVariant = (
+    scene: StoryboardScene,
+    type: 'start' | 'middle' | 'end',
+    variant: GeneratedAssetVariant
+  ) => {
+    const currentAsset =
+      type === 'start' ? scene.startImage :
+      type === 'middle' ? scene.middleImage :
+      scene.endImage;
+
+    if (!currentAsset) return;
+
+    const updatedAsset: GeneratedAsset = {
+      ...currentAsset,
+      url: variant.url,
+      mimeType: variant.mimeType,
+      data: variant.data,
+    };
+
+    if (type === 'start') onUpdateScene(scene.id, { startImage: updatedAsset });
+    else if (type === 'middle') onUpdateScene(scene.id, { middleImage: updatedAsset });
+    else onUpdateScene(scene.id, { endImage: updatedAsset });
   };
 
   // NEW: Generate All Subsequent Scenes based on Scene 1
@@ -208,8 +473,13 @@ export const Storyboard: React.FC<Props> = ({
           abortControllers.current.get(abortKey)?.abort();
           abortControllers.current.delete(abortKey);
       }
+      createGenerationToken(`${sceneId}_${type}_image`);
+      const stopUpdate: Partial<StoryboardScene> = {};
+      if (type === 'start') stopUpdate.isGeneratingStart = false;
+      if (type === 'middle') stopUpdate.isGeneratingMiddle = false;
+      if (type === 'end') stopUpdate.isGeneratingEnd = false;
+      onUpdateScene(sceneId, stopUpdate);
   };
-
   const handleGenerateImage = async (
     scene: StoryboardScene, 
     type: 'start' | 'end' | 'middle', 
@@ -231,6 +501,8 @@ export const Storyboard: React.FC<Props> = ({
     }
     const controller = new AbortController();
     abortControllers.current.set(abortKey, controller);
+    const generationKey = `${scene.id}_${type}_image`;
+    const generationToken = createGenerationToken(generationKey);
 
     const loadingUpdate = {
         isGeneratingStart: type === 'start' ? true : scene.isGeneratingStart,
@@ -241,30 +513,24 @@ export const Storyboard: React.FC<Props> = ({
     onUpdateScene(scene.id, loadingUpdate);
 
     try {
-      // Use the specific Text-to-Image prompt if available, otherwise fall back to the main imagePrompt (which might be JSON)
       let prompt = customPrompt || scene.prompt.textPrompt || scene.prompt.imagePrompt;
       let referenceImages: string[] = [];
 
-      // Priority 0: Consistency Anchor (Scene 1)
-      // If we are Scene > 0, we MUST use Scene 1 as the primary reference
       const scene1Ref = forcedReferenceImage || (sceneIndex > 0 ? scenes[0].startImage?.data : null);
       if (scene1Ref) {
           referenceImages.push(scene1Ref);
       }
 
-      // Priority 1: User Uploaded Custom References
       if (modelImages && modelImages.length > 0) referenceImages.push(...modelImages);
       if (backgroundImages && backgroundImages.length > 0) referenceImages.push(...backgroundImages);
       
-      // Priority 2: Product Images (Only if we don't have too many refs already)
       if (referenceImages.length < 3 && productImages && productImages.length > 0) {
           referenceImages.push(...productImages.slice(0, 2)); 
       }
       
-      // LOGIC: Intermediate frame handling
       if (type === 'middle') {
         const startImg = scene.startImage?.data;
-        if (startImg) referenceImages.unshift(startImg); // Prioritize own start frame for flow
+        if (startImg) referenceImages.unshift(startImg);
       } 
       else if (type === 'end') {
           const startImg = scene.startImage?.data;
@@ -272,83 +538,139 @@ export const Storyboard: React.FC<Props> = ({
       }
 
       let targetResolution = resolution;
-      // Mid frames can be lower res for speed if intermediate mode
       if (videoMode === VideoMode.Intermediate && type === 'middle') {
           targetResolution = ImageResolution.Res_1K;
       }
 
-      // Resolve Camera/Style Prompts
       const cameraPrompt = CAMERA_DEVICES.find((c: any) => c.value === cameraDevice)?.prompt || '';
       const stylePrompt = SHOOTING_STYLES.find((s: any) => s.value === shootingStyle)?.prompt || '';
 
-      // Pass the selected imageModel from props
-      const { base64, creditsRemaining } = await generateImageAPI(
+      const primaryResult = await generateImageAPI(
           prompt, 
           aspectRatio, 
           targetResolution, 
           referenceImages, 
           imageModel,
           cameraPrompt,
-          stylePrompt
+          stylePrompt,
+          1
       );
-      // Optional: dispatch credit update to parent, but currently we just ignore the return or handle top level.
-      
-      const asset: GeneratedAsset = {
-        type: 'image',
-        url: `data:image/jpeg;base64,${base64}`,
-        mimeType: 'image/jpeg',
-        data: base64
-      };
 
-      if (type === 'start') onUpdateScene(scene.id, { startImage: asset });
-      else if (type === 'end') onUpdateScene(scene.id, { endImage: asset });
-      else if (type === 'middle') onUpdateScene(scene.id, { middleImage: asset });
+      if (!isLatestGeneration(generationKey, generationToken)) {
+          return undefined;
+      }
 
-      return base64;
+      const primaryAsset = buildImageAsset(primaryResult.base64, primaryResult.images);
+
+      if (type === 'start') onUpdateScene(scene.id, { startImage: primaryAsset });
+      else if (type === 'end') onUpdateScene(scene.id, { endImage: primaryAsset });
+      else if (type === 'middle') onUpdateScene(scene.id, { middleImage: primaryAsset });
+
+      void (async () => {
+          try {
+              const extraResult = await generateImageAPI(
+                  prompt,
+                  aspectRatio,
+                  targetResolution,
+                  referenceImages,
+                  imageModel,
+                  cameraPrompt,
+                  stylePrompt,
+                  3
+              );
+
+              if (!isLatestGeneration(generationKey, generationToken)) {
+                  return;
+              }
+
+              const currentAsset = getSceneAsset(scene.id, type);
+              const mergedAsset = buildImageAsset(
+                  currentAsset?.data || primaryResult.base64,
+                  extraResult.images,
+                  currentAsset
+              );
+
+              if (type === 'start') onUpdateScene(scene.id, { startImage: mergedAsset });
+              else if (type === 'end') onUpdateScene(scene.id, { endImage: mergedAsset });
+              else if (type === 'middle') onUpdateScene(scene.id, { middleImage: mergedAsset });
+          } catch (error) {
+              console.warn(`补充候选图失败: ${scene.id}/${type}`, error);
+          }
+      })();
+
+      return primaryResult.base64;
     } catch (e: any) {
       if (e.name === 'AbortError') {
           console.log(`Generation for scene ${scene.id} ${type} stopped by user.`);
-          // No error message needed for user stop
       } else {
           onUpdateScene(scene.id, { error: `生成失败: ${e.message}` });
       }
       return undefined;
     } finally {
        abortControllers.current.delete(abortKey);
-       const finalUpdate: any = {};
-       if(type === 'start') finalUpdate.isGeneratingStart = false;
-       if(type === 'middle') finalUpdate.isGeneratingMiddle = false;
-       if(type === 'end') finalUpdate.isGeneratingEnd = false;
-       onUpdateScene(scene.id, finalUpdate);
+       if (isLatestGeneration(generationKey, generationToken)) {
+           const finalUpdate: any = {};
+           if(type === 'start') finalUpdate.isGeneratingStart = false;
+           if(type === 'middle') finalUpdate.isGeneratingMiddle = false;
+           if(type === 'end') finalUpdate.isGeneratingEnd = false;
+           onUpdateScene(scene.id, finalUpdate);
+       }
     }
   };
 
-  const handleGenerateAudio = async (scene: StoryboardScene) => {
-    if (!scene.dialogue) return;
-    onUpdateScene(scene.id, { isGeneratingAudio: true, error: undefined });
+  const handleGenerateVideo = async (scene: StoryboardScene) => {
+    const referenceImages = getSceneVideoReferenceImages(scene);
+    if (referenceImages.length === 0) {
+        onUpdateScene(scene.id, { error: '请先生成至少一张分镜图，再生成视频' });
+        return;
+    }
+
+    const generationKey = `${scene.id}_video`;
+    const generationToken = createGenerationToken(generationKey);
+
+    onUpdateScene(scene.id, { isGeneratingVideo: true, error: undefined });
     try {
-        const { base64 } = await generateSpeechAPI(scene.dialogue, assignedVoice);
-        const asset: GeneratedAsset = {
-            type: 'audio',
-            url: `data:audio/wav;base64,${base64}`,
-            mimeType: 'audio/wav',
-            data: base64
-        };
-        onUpdateScene(scene.id, { audio: asset });
+        const cameraPrompt = CAMERA_DEVICES.find((c: any) => c.value === cameraDevice)?.prompt || '';
+        const stylePrompt = SHOOTING_STYLES.find((s: any) => s.value === shootingStyle)?.prompt || '';
+        const prompt = buildStoryboardVideoPrompt(scene);
+        const primaryResult = await generateVideoAPI(prompt, aspectRatio, referenceImages, cameraPrompt, stylePrompt, 1);
+
+        if (!isLatestGeneration(generationKey, generationToken)) {
+            return;
+        }
+
+        const primaryAsset = buildVideoAsset(primaryResult.url, primaryResult.videos);
+        onUpdateScene(scene.id, { video: primaryAsset });
+
+        void (async () => {
+            try {
+                const extraResult = await generateVideoAPI(prompt, aspectRatio, referenceImages, cameraPrompt, stylePrompt, 3);
+                if (!isLatestGeneration(generationKey, generationToken)) {
+                    return;
+                }
+
+                const currentAsset = getSceneAsset(scene.id, 'video');
+                const mergedAsset = buildVideoAsset(currentAsset?.url || primaryResult.url, extraResult.videos, currentAsset);
+                onUpdateScene(scene.id, { video: mergedAsset });
+            } catch (error) {
+                console.warn(`补充候选视频失败: ${scene.id}`, error);
+            }
+        })();
     } catch (e) {
-        onUpdateScene(scene.id, { error: `语音失败: ${(e as Error).message}` });
+        onUpdateScene(scene.id, { error: `视频失败: ${(e as Error).message}` });
     } finally {
-        onUpdateScene(scene.id, { isGeneratingAudio: false });
+        if (isLatestGeneration(generationKey, generationToken)) {
+            onUpdateScene(scene.id, { isGeneratingVideo: false });
+        }
     }
   };
-
   const handleOptimizePrompt = async (scene: StoryboardScene) => {
       onUpdateScene(scene.id, { isUpdatingPrompt: true });
       try {
           // CONSISTENCY LOGIC:
           // If this is Scene 2+, we MUST pass Scene 1's prompt as the "Master"
           const sceneIndex = scenes.findIndex(s => s.id === scene.id);
-          const masterPrompt = sceneIndex > 0 ? (scenes[0].prompt.textPrompt || scenes[0].prompt.imagePrompt) : undefined;
+          const masterPrompt = sceneIndex > 0 ? (scenes[0].prompt.textPrompt || scenes[0].visual_en) : undefined;
           
           // Optimize the TEXT prompt (not the Veo JSON)
           const promptToOptimize = scene.prompt.textPrompt || scene.visual_en;
@@ -365,8 +687,7 @@ export const Storyboard: React.FC<Props> = ({
   const updatePrompt = (id: string, value: string) => {
       const scene = scenes.find(s => s.id === id);
       if (scene) {
-          // Update the Veo JSON Prompt
-          onUpdateScene(id, { prompt: { ...scene.prompt, imagePrompt: value } });
+          onUpdateScene(id, { prompt: { ...scene.prompt, videoPrompt: value, videoPromptCustom: true } });
       }
   }
 
@@ -391,28 +712,20 @@ export const Storyboard: React.FC<Props> = ({
                )}
            </div>
            
-           <div className="flex items-center gap-3">
-                {/* Voice Badge */}
-                <div className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 flex items-center gap-2">
-                    <span className="text-[10px] font-bold text-slate-500 uppercase">Voice</span>
-                    <span className="text-[10px] text-purple-400 font-mono flex items-center gap-1">
-                        <Mic size={10} /> {assignedVoice} (Locked)
-                    </span>
-                </div>
-
-                {/* Model Badge (New) */}
-                <div className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 flex items-center gap-2 hidden lg:flex">
-                     <span className="text-[10px] font-bold text-slate-500 uppercase">Model</span>
+            <div className="flex items-center gap-3">
+                 {/* Model Badge (New) */}
+                 <div className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 flex items-center gap-2 hidden lg:flex">
+                     <span className="text-[10px] font-bold text-slate-500">模型</span>
                      <span className="text-[10px] text-sky-400 font-mono">
-                         {imageModel.includes('flash') ? 'Banana' : 'Banana Pro'}
+                         {selectedImageModel}
                      </span>
                 </div>
 
                 {/* Resolution Badge */}
                 <div className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 flex items-center gap-2">
-                    <span className="text-[10px] font-bold text-slate-500 uppercase">Res</span>
+                    <span className="text-[10px] font-bold text-slate-500">分辨率</span>
                     <span className="text-[10px] text-brand-400 font-mono">
-                            {imageModel.includes('flash') ? 'Default' : resolution}
+                            {imageModel.includes('flash') ? '默认' : resolution}
                     </span>
                 </div>
            </div>
@@ -428,7 +741,7 @@ export const Storyboard: React.FC<Props> = ({
             <div className="p-4 flex items-center justify-between border-b border-slate-800 cursor-pointer" onClick={() => toggleExpand(scene.id)}>
                 <div className="flex items-center gap-4">
                 <span className={`text-xs font-bold px-2 py-1 rounded shadow ${isScene1 ? 'bg-brand-600 text-white shadow-brand-500/20' : 'bg-slate-700 text-slate-300'}`}>
-                    分镜 {index + 1} {isScene1 && <span className="ml-1 text-[10px] bg-white/20 px-1 rounded">MASTER</span>}
+                    分镜 {index + 1} {isScene1 && <span className="ml-1 text-[10px] bg-white/20 px-1 rounded">主镜头</span>}
                 </span>
                 <div className="flex flex-col">
                     <h3 className="font-semibold text-slate-200 truncate max-w-md">{scene.visual || '未命名分镜'}</h3>
@@ -450,12 +763,29 @@ export const Storyboard: React.FC<Props> = ({
                 {/* Left: Script & Prompts (5 cols - Increased width for prompt) */}
                 <div className="xl:col-span-5 space-y-5">
                     
+                    {(scene.title || scene.objective) && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {scene.title && (
+                                <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+                                    <label className="text-[10px] uppercase text-amber-400 font-bold tracking-wider block mb-1">分镜标题</label>
+                                    <p className="text-sm text-slate-200 leading-relaxed">{scene.title}</p>
+                                </div>
+                            )}
+                            {scene.objective && (
+                                <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+                                    <label className="text-[10px] uppercase text-emerald-400 font-bold tracking-wider block mb-1">分镜目标</label>
+                                    <p className="text-sm text-slate-300 leading-relaxed">{scene.objective}</p>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     {/* Visual / Action / Camera Inputs */}
                     <div className="space-y-3">
                         {/* Visual */}
                         <div className="space-y-1">
                             <label className="text-[10px] uppercase text-brand-400 font-bold tracking-wider flex items-center gap-1">
-                                <ImageIcon size={10} /> 画面内容 (Visual)
+                                <ImageIcon size={10} /> 画面内容
                             </label>
                             <textarea 
                                 value={scene.visual}
@@ -468,7 +798,7 @@ export const Storyboard: React.FC<Props> = ({
                          {/* Action - ADDED BACK */}
                         <div className="space-y-1">
                             <label className="text-[10px] uppercase text-brand-400 font-bold tracking-wider flex items-center gap-1">
-                                <Activity size={10} /> 动作 (Action)
+                                <Activity size={10} /> 动作设计
                             </label>
                             <input 
                                 value={scene.action}
@@ -480,7 +810,7 @@ export const Storyboard: React.FC<Props> = ({
                         {/* Camera - ADDED BACK */}
                          <div className="space-y-1">
                             <label className="text-[10px] uppercase text-brand-400 font-bold tracking-wider flex items-center gap-1">
-                                <Camera size={10} /> 运镜 (Camera)
+                                <Camera size={10} /> 运镜设计
                             </label>
                             <input 
                                 value={scene.camera}
@@ -493,7 +823,7 @@ export const Storyboard: React.FC<Props> = ({
                         <div className="space-y-1 pt-4 border-t border-slate-800/50 mt-2">
                             <div className="flex items-center justify-between mb-1">
                                 <label className="text-[10px] uppercase text-sky-400 font-bold tracking-wider flex items-center gap-1">
-                                    <Sparkles size={10} /> 文生图提示词 (Image Prompt)
+                                    <Sparkles size={10} /> 文生图提示词
                                 </label>
                                 <button 
                                     onClick={() => copyToClipboard(scene.prompt.textPrompt || scene.visual_en)}
@@ -512,26 +842,26 @@ export const Storyboard: React.FC<Props> = ({
                             </div>
                         </div>
 
-                        {/* Veo Prompt Editor (Updated with Copy Button) */}
+                        {/* Veo Manifest Editor */}
                         <div className="space-y-1 pt-2 opacity-60 hover:opacity-100 transition-opacity">
                             <div className="flex items-center justify-between mb-1">
                                 <label className="text-[10px] uppercase text-purple-400 font-bold tracking-wider flex items-center gap-1">
-                                    <Video size={10} /> 视频生成 Manifest (Veo JSON)
+                                    <Video size={10} /> 图片转视频 JSON 提示词
                                 </label>
                                 <button 
-                                    onClick={() => copyToClipboard(scene.prompt.imagePrompt)}
+                                    onClick={() => copyToClipboard(getVideoManifestPrompt(scene))}
                                     className="text-[10px] bg-purple-600/20 hover:bg-purple-500 text-purple-400 hover:text-white px-2 py-1 rounded transition-colors flex items-center gap-1 border border-purple-500/20"
                                 >
                                     <Copy size={10} /> 一键复制
                                 </button>
                             </div>
                             <div className="relative">
-                                <textarea 
-                                    value={scene.prompt.imagePrompt}
+                                 <textarea 
+                                    value={getVideoManifestPrompt(scene)}
                                     onChange={(e) => updatePrompt(scene.id, e.target.value)}
                                     className="w-full bg-black/30 border border-purple-900/30 rounded p-2 text-[10px] text-purple-300 font-mono focus:border-purple-500 focus:outline-none leading-tight shadow-inner"
-                                    rows={4}
-                                    placeholder="等待生成 Veo Manifest..."
+                                    rows={10}
+                                    placeholder="等待生成视频 JSON 提示词..."
                                 />
                             </div>
                         </div>
@@ -540,7 +870,7 @@ export const Storyboard: React.FC<Props> = ({
                         <div className="grid grid-cols-1 gap-2 pt-2 border-t border-slate-800/50">
                             {/* Chinese Dialogue */}
                             <div className="space-y-1">
-                                <label className="text-[10px] uppercase text-slate-500 font-bold tracking-wider">中文大意 (Chinese)</label>
+                                <label className="text-[10px] uppercase text-slate-500 font-bold tracking-wider">对白中文释义</label>
                                 <input 
                                 value={scene.dialogue_cn || ''}
                                 onChange={(e) => onUpdateScene(scene.id, { dialogue_cn: e.target.value })}
@@ -551,7 +881,7 @@ export const Storyboard: React.FC<Props> = ({
                             
                             {/* Target Language Dialogue */}
                             <div className="space-y-1">
-                                <label className="text-[10px] uppercase text-brand-400 font-bold tracking-wider">配音台词 ({assignedVoice})</label>
+                                <label className="text-[10px] uppercase text-brand-400 font-bold tracking-wider">口播台词</label>
                                 <input 
                                 value={scene.dialogue}
                                 onChange={(e) => onUpdateScene(scene.id, { dialogue: e.target.value })}
@@ -583,6 +913,7 @@ export const Storyboard: React.FC<Props> = ({
                                 sceneIndex={index + 1}
                                 type="start"
                                 aspectRatio={aspectRatio}
+                                onSelectVariant={(variant) => handleSelectImageVariant(scene, 'start', variant)}
                             />
                             
                             {(videoMode === VideoMode.StartEnd || videoMode === VideoMode.Intermediate) && (
@@ -607,6 +938,7 @@ export const Storyboard: React.FC<Props> = ({
                                         sceneIndex={index + 1}
                                         type="draft"
                                         aspectRatio={aspectRatio}
+                                        onSelectVariant={(variant) => handleSelectImageVariant(scene, 'middle', variant)}
                                     />
                                     <div className="mt-20 text-slate-700 hidden md:block"><ArrowRight size={16} /></div>
                                 </>
@@ -629,38 +961,37 @@ export const Storyboard: React.FC<Props> = ({
                                         sceneIndex={index + 1}
                                         type="end"
                                         aspectRatio={aspectRatio}
+                                        onSelectVariant={(variant) => handleSelectImageVariant(scene, 'end', variant)}
                                     />
                                 </>
                             )}
-                        </div>
 
-                        {/* Audio Section */}
-                        <div className="mt-auto bg-slate-900/80 p-3 rounded-lg border border-slate-800 flex items-center gap-4">
-                            <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-400">
-                                <Mic size={16} />
-                            </div>
-                            <div className="flex-1">
-                                <div className="flex items-center justify-between">
-                                    <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">配音 ({assignedVoice})</span>
-                                    {scene.audio && <a href={scene.audio.url} download={`${productTitle || 'Scene'}_Scene${index+1}_Audio.wav`}><Download size={12} className="text-slate-500 hover:text-white"/></a>}
-                                </div>
-                                {scene.audio ? (
-                                    <div className="flex items-center gap-3 mt-1">
-                                        <AudioPlayer url={scene.audio.url} />
-                                        <button onClick={() => handleGenerateAudio(scene)} className="text-[10px] text-slate-400 underline hover:text-white">重生成</button>
-                                    </div>
-                                ) : (
-                                    <div className="flex items-center gap-2 mt-1">
-                                        <button 
-                                            disabled={!scene.dialogue || scene.isGeneratingAudio}
-                                            onClick={() => handleGenerateAudio(scene)}
-                                            className="text-xs bg-slate-800 hover:bg-slate-700 px-3 py-1 rounded text-slate-300 transition-colors disabled:opacity-50 border border-slate-700"
-                                        >
-                                            {scene.isGeneratingAudio ? '生成中...' : '生成语音'}
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
+                            <div className="mt-20 text-slate-700 hidden md:block"><ArrowRight size={16} /></div>
+                            <AssetCard
+                                label="分镜视频"
+                                asset={scene.video}
+                                loading={scene.isGeneratingVideo}
+                                onGen={() => handleGenerateVideo(scene)}
+                                onPreview={onPreview}
+                                onViewPrompt={() => setPromptModal({ isOpen: true, content: buildStoryboardVideoPrompt(scene) })}
+                                icon={<Video size={14} />}
+                                highlight
+                                disabled={!scene.startImage}
+                                title={productTitle}
+                                sceneIndex={index + 1}
+                                type="video"
+                                aspectRatio={aspectRatio}
+                                onSelectVariant={(variant) => {
+                                    if (!scene.video) return;
+                                    onUpdateScene(scene.id, {
+                                        video: {
+                                            ...scene.video,
+                                            url: variant.url,
+                                            mimeType: variant.mimeType,
+                                        },
+                                    });
+                                }}
+                            />
                         </div>
 
                     </div>
@@ -708,3 +1039,6 @@ export const Storyboard: React.FC<Props> = ({
     </div>
   );
 };
+
+
+

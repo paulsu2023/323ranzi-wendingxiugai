@@ -1,21 +1,29 @@
 'use client';
 import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { isDemoMode } from '@/lib/config';
 import { useRouter } from 'next/navigation';
 import { Sparkles, Zap, Crown, Star, CreditCard, History, LogOut, ArrowRight, CheckCircle, AlertCircle, Coins } from 'lucide-react';
 import { CREDIT_PACKAGES } from '@/constants';
 
 interface Props {
   profile: { credits: number; email: string; display_name: string; plan: string };
+  isDemoMode?: boolean;
 }
 
-export default function BillingPage({ profile }: Props) {
+export default function BillingPage({ profile, isDemoMode: pageDemoMode = false }: Props) {
   const router = useRouter();
-  const supabase = createClient();
+  const supabase = isDemoMode ? null : createClient();
+  const activeDemoMode = isDemoMode || pageDemoMode;
   const [loading, setLoading] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
   const handlePurchase = async (packageId: string) => {
+    if (activeDemoMode) {
+      setMessage('本地演示模式未接入 Stripe，支付已禁用。');
+      return;
+    }
+
     setLoading(packageId);
     try {
       const res = await fetch('/api/stripe/checkout', {
@@ -33,8 +41,13 @@ export default function BillingPage({ profile }: Props) {
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
-    router.push('/login');
+    if (supabase) {
+      await supabase.auth.signOut();
+      router.push('/login');
+      return;
+    }
+
+    router.push('/app');
   };
 
   const packageIcons: Record<string, React.ReactNode> = {
@@ -79,10 +92,11 @@ export default function BillingPage({ profile }: Props) {
         </div>
 
         {/* Credit cost reference */}
-        <div className="grid grid-cols-3 gap-3 mb-8">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
           {[
             { op: '产品分析', cost: 5, icon: '🧠' },
             { op: '生成一帧图', cost: 2, icon: '🖼️' },
+            { op: '直接生成视频', cost: 6, icon: '🎬' },
             { op: '生成语音', cost: 1, icon: '🎙️' },
           ].map(item => (
             <div key={item.op} className="bg-slate-900/50 border border-slate-800 rounded-xl p-3 text-center">
@@ -123,18 +137,18 @@ export default function BillingPage({ profile }: Props) {
               <p className="text-slate-400 text-xs mb-6 flex-1">{pkg.description}</p>
               <button
                 onClick={() => handlePurchase(pkg.id)}
-                disabled={loading === pkg.id}
+                disabled={loading === pkg.id || activeDemoMode}
                 className={`w-full py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all ${pkg.popular ? 'bg-gradient-to-r from-violet-600 to-blue-600 hover:from-violet-500 hover:to-blue-500 text-white shadow-lg' : 'bg-slate-800 hover:bg-slate-700 text-slate-200'} disabled:opacity-60`}
               >
-                {loading === pkg.id ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <><ArrowRight size={14} /> 立即购买</>}
+                {loading === pkg.id ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <><ArrowRight size={14} /> {activeDemoMode ? '演示模式' : '立即购买'}</>}
               </button>
             </div>
           ))}
         </div>
 
-        <div className="flex items-center gap-2 bg-green-950/30 border border-green-800/30 text-green-400 p-4 rounded-xl text-sm">
+        <div className={`flex items-center gap-2 p-4 rounded-xl text-sm ${activeDemoMode ? 'bg-amber-950/30 border border-amber-800/30 text-amber-300' : 'bg-green-950/30 border border-green-800/30 text-green-400'}`}>
           <CheckCircle size={16} className="flex-shrink-0" />
-          支付由 Stripe 安全处理，支持全球主流信用卡。充值后点数即时到账。
+          {activeDemoMode ? '当前为本地演示模式：认证、计费、Stripe 已绕过，仅保留创作流程验证。' : '支付由 Stripe 安全处理，支持全球主流信用卡。充值后点数即时到账。'}
         </div>
 
         <div className="mt-6 text-center">

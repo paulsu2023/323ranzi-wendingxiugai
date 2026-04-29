@@ -18,6 +18,17 @@ export enum VideoMode {
   Intermediate = 'intermediate',
 }
 
+export interface ReferenceVideoData {
+  previewUrl: string;
+  mimeType: string;
+  fileName: string;
+  sizeBytes: number;
+  durationSeconds: number;
+  width: number;
+  height: number;
+  analysisFrames: string[];
+}
+
 export interface ProductData {
   images: string[];
   title: string;
@@ -26,7 +37,7 @@ export interface ProductData {
   targetMarket: string;
   modelImages: string[];
   backgroundImages: string[];
-  referenceVideo?: { data: string; mimeType: string } | null;
+  referenceVideo?: ReferenceVideoData | null;
 }
 
 export interface ComplianceCheck {
@@ -38,11 +49,29 @@ export interface ComplianceCheck {
 
 export interface AnalysisResult {
   productType: string;
+  productSpecs: string;
   sellingPoints: string;
   targetAudience: string;
   hook: string;
   painPoints: string;
   strategy: string;
+  modelRequirements: string;
+  backgroundGuidance: string;
+  realismGuidance: string;
+  assetMatchingGuidance: string;
+  referenceVideoAnalysis: string;
+  referenceVideoScriptExtraction: string;
+  referenceVideoRewrite: string;
+  referenceVideoStructurePlan: string;
+  referenceVideoTimingPlan: string;
+  referenceVideoHarnessCheck: string;
+  recommendedSceneCount?: number;
+  estimatedDurationSeconds?: number;
+  publishTitle: string;
+  publishDescription: string;
+  primaryHashtags: string[];
+  backupHashtags: string[];
+  executionHarness: string;
   assignedVoice: string;
   complianceCheck: ComplianceCheck;
   scenes: SceneDraft[];
@@ -50,6 +79,8 @@ export interface AnalysisResult {
 
 export interface SceneDraft {
   id: string;
+  title?: string;
+  objective?: string;
   visual: string;
   visual_en: string;
   action: string;
@@ -59,16 +90,25 @@ export interface SceneDraft {
   dialogue: string;
   dialogue_cn: string;
   prompt: {
-    imagePrompt: string;
     textPrompt: string;
+    imagePrompt: string;
+    videoPrompt: string;
+    videoPromptCustom?: boolean;
   };
 }
 
-export interface GeneratedAsset {
-  type: 'image' | 'audio';
+export interface GeneratedAssetVariant {
   url: string;
   mimeType: string;
   data?: string;
+}
+
+export interface GeneratedAsset {
+  type: 'image' | 'audio' | 'video';
+  url: string;
+  mimeType: string;
+  data?: string;
+  variants?: GeneratedAssetVariant[];
 }
 
 export interface StoryboardScene extends SceneDraft {
@@ -76,12 +116,14 @@ export interface StoryboardScene extends SceneDraft {
   endImage?: GeneratedAsset;
   middleImage?: GeneratedAsset;
   audio?: GeneratedAsset;
+  video?: GeneratedAsset;
   isGeneratingImage: boolean;
   isGeneratingAudio: boolean;
   error?: string;
   isGeneratingStart?: boolean;
   isGeneratingMiddle?: boolean;
   isGeneratingEnd?: boolean;
+  isGeneratingVideo?: boolean;
   isUpdatingPrompt?: boolean;
 }
 
@@ -92,6 +134,7 @@ export interface AppState {
     imageResolution: ImageResolution;
     videoMode: VideoMode;
     sceneCount: number;
+    analysisModel: string;
     imageModel: string;
     cameraDevice: string;
     shootingStyle: string;
@@ -103,6 +146,11 @@ export interface AppState {
   activeStep: number;
 }
 
+export interface UserGeminiConfig {
+  apiKey: string;
+  baseUrl?: string;
+}
+ 
 export interface UserProfile {
   id: string;
   email: string;

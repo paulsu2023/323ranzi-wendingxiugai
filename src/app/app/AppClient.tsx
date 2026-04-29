@@ -1,14 +1,15 @@
 "use client";
 
-import React, { useState } from 'react';
-import { Bot, Layers, LayoutTemplate, Settings2, Sparkles, AlertCircle, X, ChevronRight, BrainCircuit, Minus, Plus, Download, Lock, KeyRound, ArrowRight, User, Image as ImageIcon, Video, Globe, ShieldCheck, AlertTriangle, LogOut, CreditCard } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Bot, Layers, LayoutTemplate, Settings2, Sparkles, AlertCircle, X, ChevronRight, ChevronDown, ChevronUp, BrainCircuit, Minus, Plus, Download, Lock, KeyRound, ArrowRight, User, Image as ImageIcon, Video, Globe, ShieldCheck, AlertTriangle, LogOut, CreditCard, Copy } from 'lucide-react';
 import { ImageUploader, VideoUploader } from '@/components/ImageUploader';
 import { Storyboard } from '@/components/Storyboard';
 import { AnalysisLoader } from '@/components/AnalysisLoader';
-import { analyzeProductAPI } from '@/services/apiClient';
-import { AppState, AspectRatio, VideoMode, StoryboardScene, ImageResolution, UserProfile } from '@/types';
-import { ASPECT_RATIOS, VIDEO_MODES, IMAGE_RESOLUTIONS, TARGET_MARKETS, IMAGE_MODELS, CAMERA_DEVICES, SHOOTING_STYLES } from '@/constants';
+import { analyzeProductAPI, validateGeminiConfigAPI } from '@/services/apiClient';
+import { AppState, AspectRatio, VideoMode, StoryboardScene, ImageResolution, UserProfile, UserGeminiConfig } from '@/types';
+import { ANALYSIS_MODELS, ASPECT_RATIOS, VIDEO_MODES, IMAGE_RESOLUTIONS, TARGET_MARKETS, IMAGE_MODELS, CAMERA_DEVICES, SHOOTING_STYLES } from '@/constants';
 import { createClient } from '@/lib/supabase/client';
+import { isDemoMode } from '@/lib/config';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
@@ -16,53 +17,195 @@ interface AppClientProps {
   initialProfile: UserProfile;
 }
 
+const createInitialState = (): AppState => ({
+  product: {
+    images: [],
+    title: '',
+    description: '',
+    creativeIdeas: '',
+    targetMarket: 'US',
+    modelImages: [],
+    backgroundImages: [],
+    referenceVideo: null,
+  },
+  settings: {
+    aspectRatio: AspectRatio.Ratio_9_16,
+    imageResolution: ImageResolution.Res_2K,
+    videoMode: VideoMode.Standard,
+    sceneCount: 1,
+    analysisModel: 'gemini-3-flash-preview',
+    imageModel: 'gemini-3.0-pro-image',
+    cameraDevice: 'iphone_16_pro_max',
+    shootingStyle: 'fixed',
+  },
+  analysis: null,
+  storyboard: [],
+  isAnalyzing: false,
+  isGeneratingScene: false,
+  activeStep: 0,
+});
+
 export default function AppClient({ initialProfile }: AppClientProps) {
   const router = useRouter();
-  const supabase = createClient();
+  const supabase = isDemoMode ? null : createClient();
+  const riskLabelMap: Record<string, string> = {
+    Safe: '安全',
+    Warning: '注意',
+    'High Risk': '高风险',
+  };
   const [profile, setProfile] = useState<UserProfile>(initialProfile);
   const [passwordInput, setPasswordInput] = useState('');
   const [authError, setAuthError] = useState(false);
+  const [geminiConfig, setGeminiConfig] = useState<UserGeminiConfig>({ apiKey: '', baseUrl: '' });
+  const [isValidatingGemini, setIsValidatingGemini] = useState(false);
+  const [geminiValidationMsg, setGeminiValidationMsg] = useState<string | null>(null);
+  const [geminiValidated, setGeminiValidated] = useState(false);
 
-  const [state, setState] = useState<AppState>({
-    product: {
-      images: [],
-      title: '',
-      description: '',
-      creativeIdeas: '',
-      targetMarket: 'MX', // Updated: Default to Mexico (MX)
-      modelImages: [],
-      backgroundImages: [],
-      referenceVideo: null,
-    },
-    settings: {
-      aspectRatio: AspectRatio.Ratio_9_16,
-      imageResolution: ImageResolution.Res_2K,
-      videoMode: VideoMode.Standard,
-      sceneCount: 1, // Updated: Default to 1 scene
-      imageModel: 'gemini-3-pro-image-preview', // Default to Banana Pro (Pro Image Preview)
-      cameraDevice: 'iphone_16_pro_max', // Default Camera
-      shootingStyle: 'fixed', // Default Style
-    },
-    analysis: null,
-    storyboard: [],
-    isAnalyzing: false,
-    isGeneratingScene: false,
-    activeStep: 0,
-  });
+  const [state, setState] = useState<AppState>(createInitialState);
 
-  const [previewMedia, setPreviewMedia] = useState<{ url: string; type: 'image' | 'audio' } | null>(null);
+  const [previewMedia, setPreviewMedia] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [publishPanelOpen, setPublishPanelOpen] = useState(false);
+  const [selectedPublishTags, setSelectedPublishTags] = useState<string[]>([]);
+
+  const getRecommendedSceneCount = (durationSeconds?: number) => {
+    const duration = Number(durationSeconds || 0);
+    if (!duration) return 1;
+    return Math.max(1, Math.min(6, Math.ceil(duration / 8)));
+  };
+
+  useEffect(() => {
+    if (!state.analysis) {
+      setSelectedPublishTags([]);
+      return;
+    }
+
+    const tags = (state.analysis.primaryHashtags || [])
+      .map((tag) => String(tag || '').trim())
+      .filter(Boolean)
+      .slice(0, 5);
+
+    setSelectedPublishTags(tags);
+    setPublishPanelOpen(false);
+  }, [state.analysis]);
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem('tk_gemini_config_v1');
+      if (!saved) return;
+      const parsed = JSON.parse(saved);
+      setGeminiConfig({
+        apiKey: String(parsed?.apiKey || ''),
+        baseUrl: String(parsed?.baseUrl || ''),
+      });
+      setGeminiValidated(Boolean(parsed?.validated));
+      setGeminiValidationMsg(parsed?.validated ? '已载入上次验证通过的 API 配置' : null);
+    } catch {}
+  }, []);
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
-    router.push('/login');
+    if (supabase) {
+      await supabase.auth.signOut();
+      router.push('/login');
+      return;
+    }
+
+    router.push('/');
+  };
+
+  const persistGeminiConfig = (nextConfig: UserGeminiConfig, validated: boolean) => {
+    try {
+      window.localStorage.setItem('tk_gemini_config_v1', JSON.stringify({
+        apiKey: nextConfig.apiKey,
+        baseUrl: nextConfig.baseUrl || '',
+        validated,
+      }));
+    } catch {}
   };
 
   const handleProductUpdate = (field: string, value: any) => {
-    setState(prev => ({
-      ...prev,
-      product: { ...prev.product, [field]: value }
-    }));
+    setState(prev => {
+      const nextProduct = { ...prev.product, [field]: value };
+      const nextSettings = { ...prev.settings };
+
+      if (field === 'referenceVideo') {
+        nextSettings.sceneCount = value?.durationSeconds
+          ? getRecommendedSceneCount(value.durationSeconds)
+          : prev.settings.sceneCount;
+      }
+
+      return {
+        ...prev,
+        product: nextProduct,
+        settings: nextSettings,
+      };
+    });
+  };
+
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (error) {
+      console.error('Copy failed', error);
+      setErrorMsg('复制失败，请重试');
+    }
+  };
+
+  const handleGeminiConfigChange = (field: keyof UserGeminiConfig, value: string) => {
+    const nextConfig = { ...geminiConfig, [field]: value };
+    setGeminiConfig(nextConfig);
+    setGeminiValidated(false);
+    setGeminiValidationMsg(null);
+    persistGeminiConfig(nextConfig, false);
+  };
+
+  const validateGeminiConfig = async () => {
+    setIsValidatingGemini(true);
+    setGeminiValidationMsg(null);
+    try {
+      const result = await validateGeminiConfigAPI(
+        geminiConfig.apiKey.trim(),
+        (geminiConfig.baseUrl || '').trim(),
+        state.settings.analysisModel
+      );
+      setGeminiValidated(true);
+      setGeminiValidationMsg(`验证成功：${result.providerLabel} / ${result.model}`);
+      persistGeminiConfig({
+        apiKey: geminiConfig.apiKey.trim(),
+        baseUrl: (geminiConfig.baseUrl || '').trim(),
+      }, true);
+    } catch (error: any) {
+      setGeminiValidated(false);
+      setGeminiValidationMsg(error.message || 'API 验证失败');
+      persistGeminiConfig(geminiConfig, false);
+    } finally {
+      setIsValidatingGemini(false);
+    }
+  };
+
+  const buildPublishBundleText = () => {
+    if (!state.analysis) return '';
+    return [
+      state.analysis.publishTitle,
+      state.analysis.publishDescription,
+      selectedPublishTags.join(' '),
+    ].filter(Boolean).join('\n\n');
+  };
+
+  const togglePublishTag = (tag: string) => {
+    const normalized = String(tag || '').trim();
+    if (!normalized) return;
+
+    setSelectedPublishTags((prev) => {
+      if (prev.includes(normalized)) {
+        return prev.filter((item) => item !== normalized);
+      }
+
+      if (prev.length < 5) {
+        return [...prev, normalized];
+      }
+      return prev;
+    });
   };
 
   const startAnalysis = async () => {
@@ -87,7 +230,14 @@ export default function AppClient({ initialProfile }: AppClientProps) {
     setErrorMsg(null);
 
     try {
-      const { result, creditsRemaining } = await analyzeProductAPI(state.product, state.settings.sceneCount);
+      const { result, creditsRemaining } = await analyzeProductAPI(
+        state.product,
+        state.settings.sceneCount,
+        state.settings.analysisModel,
+        geminiConfig.apiKey.trim()
+          ? { apiKey: geminiConfig.apiKey.trim(), baseUrl: (geminiConfig.baseUrl || '').trim() }
+          : undefined
+      );
       setProfile(prev => ({ ...prev, credits: creditsRemaining }));
       
       const initialStoryboard: StoryboardScene[] = result.scenes.map((s: any) => ({
@@ -208,6 +358,62 @@ export default function AppClient({ initialProfile }: AppClientProps) {
             
             <section className="grid grid-cols-1 lg:grid-cols-12 gap-8">
               <div className="lg:col-span-4 space-y-6">
+                <div className="bg-slate-900 p-6 rounded-3xl border border-slate-800 shadow-xl relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-brand-500/10 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
+                  
+                  <h2 className="text-lg font-bold mb-4 flex items-center gap-3 text-white">
+                    <KeyRound className="text-brand-500" size={20} />
+                    分析 API / 模型
+                  </h2>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-400 mb-1.5">API Key</label>
+                      <input
+                        type="password"
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm focus:ring-2 focus:ring-brand-500 outline-none text-slate-200 placeholder-slate-700 transition-all"
+                        placeholder="可选：输入你自己的 Gemini / AI Studio API Key"
+                        value={geminiConfig.apiKey}
+                        onChange={(e) => handleGeminiConfigChange('apiKey', e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-400 mb-1.5">Base URL <span className="text-slate-600 text-[10px] ml-1">(可选)</span></label>
+                      <input
+                        type="text"
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm focus:ring-2 focus:ring-brand-500 outline-none text-slate-200 placeholder-slate-700 transition-all"
+                        placeholder="可选，自定义网关地址"
+                        value={geminiConfig.baseUrl || ''}
+                        onChange={(e) => handleGeminiConfigChange('baseUrl', e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-400 mb-1.5">分析模型</label>
+                      <select
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-white focus:border-brand-500 outline-none"
+                        value={state.settings.analysisModel}
+                        onChange={(e) => setState(prev => ({ ...prev, settings: { ...prev.settings, analysisModel: e.target.value } }))}
+                      >
+                        {ANALYSIS_MODELS.map(model => (
+                          <option key={model.value} value={model.value}>{model.label}</option>
+                        ))}
+                      </select>
+                      <p className="mt-1 text-[10px] text-slate-500">如果当前模型失败，系统会从当前选择开始向后自动回退。</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={validateGeminiConfig}
+                        disabled={isValidatingGemini}
+                        className="px-4 py-2 rounded-xl bg-brand-600 hover:bg-brand-500 disabled:opacity-60 text-white text-sm font-medium transition-colors"
+                      >
+                        {isValidatingGemini ? '验证中...' : '验证 API'}
+                      </button>
+                      <span className={`text-xs ${geminiValidated ? 'text-emerald-400' : 'text-slate-500'}`}>
+                        {geminiValidationMsg || 'Vercel 部署默认使用服务端 Vertex JSON；这里可临时覆盖为 AI Studio Key。'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="bg-slate-900 p-6 rounded-3xl border border-slate-800 shadow-xl relative overflow-hidden">
                   <div className="absolute top-0 right-0 w-32 h-32 bg-brand-500/10 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
                   
@@ -363,6 +569,13 @@ export default function AppClient({ initialProfile }: AppClientProps) {
                                         <Plus size={14} />
                                     </button>
                             </div>
+                            {state.product.referenceVideo?.durationSeconds ? (
+                              <p className="mt-1 text-[10px] text-slate-500 leading-relaxed">
+                                参考视频约 {state.product.referenceVideo.durationSeconds.toFixed(1)} 秒，当前按 Veo 3.1 单条约 8 秒自动建议
+                                {' '}
+                                {getRecommendedSceneCount(state.product.referenceVideo.durationSeconds)} 个镜头。
+                              </p>
+                            ) : null}
                         </div>
                     </div>
                   </div>
@@ -390,7 +603,7 @@ export default function AppClient({ initialProfile }: AppClientProps) {
                      </div>
                   </div>
                   
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 border-t border-slate-800 pt-8">
+                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 border-t border-slate-800 pt-8">
                       <div>
                           <div className="flex items-center gap-2 mb-3">
                               <User size={18} className="text-blue-400" />
@@ -439,11 +652,11 @@ export default function AppClient({ initialProfile }: AppClientProps) {
                                 onVideoChange={(v) => handleProductUpdate('referenceVideo', v)}
                             />
                         </div>
-                      </div>
-                  </div>
+                       </div>
+                   </div>
 
                   <div className="mt-auto pt-6">
-                     <button 
+                      <button 
                        onClick={startAnalysis}
                        disabled={state.isAnalyzing}
                        className="w-full py-5 bg-gradient-to-r from-brand-600 via-brand-500 to-blue-600 hover:from-brand-500 hover:to-blue-500 text-white font-bold rounded-2xl shadow-xl shadow-brand-900/40 flex items-center justify-center gap-3 transition-all transform hover:scale-[1.01] active:scale-[0.99] disabled:opacity-70 disabled:cursor-not-allowed group"
@@ -469,6 +682,107 @@ export default function AppClient({ initialProfile }: AppClientProps) {
                       
                       {state.analysis && (
                         <div className="space-y-6 text-sm">
+                           <div className="rounded-xl border border-slate-800 bg-slate-950/70 overflow-hidden">
+                              <button
+                                onClick={() => setPublishPanelOpen((prev) => !prev)}
+                                className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-slate-900/70 transition-colors"
+                              >
+                                <div>
+                                  <h3 className="text-slate-200 font-bold text-sm">TikTok 发布包</h3>
+                                  <p className="text-slate-500 text-[11px] mt-1">标题、描述、主推标签和备选标签</p>
+                                </div>
+                                {publishPanelOpen ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
+                              </button>
+
+                              {publishPanelOpen && (
+                                <div className="px-4 pb-4 space-y-4 border-t border-slate-800">
+                                  <div className="pt-4">
+                                    <div className="flex items-center justify-between mb-2">
+                                      <h4 className="text-[11px] font-bold text-brand-400 uppercase">主推标签</h4>
+                                      <div className="flex items-center gap-2">
+                                        <button
+                                          onClick={() => copyToClipboard(selectedPublishTags.join(' '))}
+                                          className="text-[10px] bg-brand-600/20 hover:bg-brand-500 text-brand-300 hover:text-white px-2 py-1 rounded transition-colors flex items-center gap-1 border border-brand-500/20"
+                                        >
+                                          <Copy size={10} /> 复制标签
+                                        </button>
+                                        <button
+                                          onClick={() => copyToClipboard(buildPublishBundleText())}
+                                          className="text-[10px] bg-sky-600/20 hover:bg-sky-500 text-sky-300 hover:text-white px-2 py-1 rounded transition-colors flex items-center gap-1 border border-sky-500/20"
+                                        >
+                                          <Copy size={10} /> 复制标题+描述+标签
+                                        </button>
+                                      </div>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                      {selectedPublishTags.map((tag) => (
+                                        <button
+                                          key={tag}
+                                          onClick={() => togglePublishTag(tag)}
+                                          className="px-2.5 py-1 rounded-full bg-brand-500/15 border border-brand-500/30 text-brand-300 text-xs hover:bg-brand-500/25 transition-colors"
+                                        >
+                                          {tag} <span className="ml-1 text-slate-400">x</span>
+                                        </button>
+                                      ))}
+                                    </div>
+                                    <p className="text-[10px] text-slate-500 mt-2">默认保持 5 个标签。你可以单独删除；删除后再从备选里补一个，也可以少于 5 个直接使用。</p>
+                                  </div>
+
+                                  <div>
+                                    <h4 className="text-[11px] font-bold text-slate-400 uppercase mb-2">备选标签</h4>
+                                    <div className="flex flex-wrap gap-2">
+                                      {(state.analysis.backupHashtags || []).map((tag) => {
+                                        const active = selectedPublishTags.includes(tag);
+                                        return (
+                                          <button
+                                            key={tag}
+                                            onClick={() => togglePublishTag(tag)}
+                                            className={`px-2.5 py-1 rounded-full border text-xs transition-colors ${
+                                              active
+                                                ? 'bg-brand-500/15 border-brand-500/30 text-brand-300'
+                                                : 'bg-slate-900 border-slate-700 text-slate-300 hover:border-slate-500'
+                                            }`}
+                                          >
+                                            {tag}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+
+                                  <div>
+                                    <div className="flex items-center justify-between mb-2">
+                                      <h4 className="text-[11px] font-bold text-amber-400 uppercase">发布标题</h4>
+                                      <button
+                                        onClick={() => copyToClipboard(state.analysis!.publishTitle)}
+                                        className="text-[10px] bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-white px-2 py-1 rounded transition-colors flex items-center gap-1 border border-amber-500/20"
+                                      >
+                                        <Copy size={10} /> 复制
+                                      </button>
+                                    </div>
+                                    <p className="text-slate-200 text-sm leading-relaxed bg-slate-900/80 border border-slate-800 rounded-lg p-3">
+                                      {state.analysis.publishTitle}
+                                    </p>
+                                  </div>
+
+                                  <div>
+                                    <div className="flex items-center justify-between mb-2">
+                                      <h4 className="text-[11px] font-bold text-emerald-400 uppercase">发布描述</h4>
+                                      <button
+                                        onClick={() => copyToClipboard(state.analysis!.publishDescription)}
+                                        className="text-[10px] bg-emerald-500/15 hover:bg-emerald-500 text-emerald-300 hover:text-white px-2 py-1 rounded transition-colors flex items-center gap-1 border border-emerald-500/20"
+                                      >
+                                        <Copy size={10} /> 复制
+                                      </button>
+                                    </div>
+                                    <p className="text-slate-300 text-xs leading-relaxed bg-slate-900/80 border border-slate-800 rounded-lg p-3 whitespace-pre-wrap">
+                                      {state.analysis.publishDescription}
+                                    </p>
+                                  </div>
+                                </div>
+                              )}
+                           </div>
+
                            <div className={`p-4 rounded-lg border ${state.analysis.complianceCheck.riskLevel === 'Safe' ? 'bg-green-900/10 border-green-500/30' : 'bg-orange-900/10 border-orange-500/30'}`}>
                                 <div className="flex items-center gap-2 mb-3">
                                     {state.analysis.complianceCheck.riskLevel === 'Safe' ? (
@@ -476,49 +790,109 @@ export default function AppClient({ initialProfile }: AppClientProps) {
                                     ) : (
                                         <AlertTriangle className="text-orange-500" size={18} />
                                     )}
-                                    <h3 className={`font-bold uppercase text-xs ${state.analysis.complianceCheck.riskLevel === 'Safe' ? 'text-green-400' : 'text-orange-400'}`}>
-                                        TikTok 合规性 & 文化检查
+                                    <h3 className={`font-bold text-xs ${state.analysis.complianceCheck.riskLevel === 'Safe' ? 'text-green-400' : 'text-orange-400'}`}>
+                                        TikTok 合规与文化检查
                                     </h3>
                                 </div>
                                 <div className="space-y-3">
                                     <div className="bg-slate-950/50 p-2 rounded">
-                                        <span className="text-xs text-slate-400 block mb-1 font-bold">风险等级 (Risk Level)</span>
+                                        <span className="text-xs text-slate-400 block mb-1 font-bold">风险等级</span>
                                         <span className={`text-xs px-2 py-0.5 rounded font-mono ${state.analysis.complianceCheck.riskLevel === 'Safe' ? 'bg-green-900 text-green-300' : 'bg-orange-900 text-orange-300'}`}>
-                                            {state.analysis.complianceCheck.riskLevel}
+                                            {riskLabelMap[state.analysis.complianceCheck.riskLevel] || state.analysis.complianceCheck.riskLevel}
                                         </span>
                                     </div>
                                     <p className="text-slate-300 text-xs leading-relaxed">{state.analysis.complianceCheck.report}</p>
                                     <div className="border-t border-slate-700/50 pt-2">
-                                        <span className="text-[10px] uppercase font-bold text-slate-500 block mb-1">文化合规建议 (Culture Notes)</span>
+                                        <span className="text-[10px] font-bold text-slate-500 block mb-1">文化合规建议</span>
                                         <p className="text-slate-400 text-xs italic">"{state.analysis.complianceCheck.culturalNotes}"</p>
                                     </div>
                                 </div>
                            </div>
 
                            <div className="bg-brand-900/20 p-4 rounded-lg border border-brand-500/20">
-                              <h3 className="text-brand-400 font-bold uppercase text-xs mb-2 flex items-center gap-1">🎯 核心策略 (Core Strategy)</h3>
+                              <h3 className="text-brand-400 font-bold text-xs mb-2 flex items-center gap-1">🎯 核心策略</h3>
                               <p className="text-slate-200 leading-relaxed font-medium">{state.analysis.strategy}</p>
                            </div>
-                           
-                           <div>
-                              <h3 className="text-slate-500 font-bold uppercase text-xs mb-1">🎣 强钩子 (Hook)</h3>
-                              <p className="text-white italic bg-slate-950 p-2 rounded border border-slate-800">"{state.analysis.hook}"</p>
-                           </div>
 
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <h3 className="text-slate-500 font-bold uppercase text-xs mb-1">👥 目标受众</h3>
-                                    <p className="text-slate-300 text-xs">{state.analysis.targetAudience}</p>
-                                </div>
-                                <div>
-                                    <h3 className="text-slate-500 font-bold uppercase text-xs mb-1">🗣️ 配音角色</h3>
-                                    <p className="text-brand-300 text-xs font-mono bg-slate-800 px-2 py-1 rounded inline-block">{state.analysis.assignedVoice}</p>
-                                </div>
+                           <div className="bg-slate-950/70 p-4 rounded-lg border border-slate-800">
+                              <h3 className="text-slate-300 font-bold text-xs mb-2">📦 产品识别</h3>
+                              <p className="text-slate-300 text-xs leading-relaxed mb-2">{state.analysis.productType}</p>
+                              <p className="text-slate-400 text-xs leading-relaxed">{state.analysis.productSpecs}</p>
+                           </div>
+                            
+                           <div>
+                              <h3 className="text-slate-500 font-bold text-xs mb-1">🎣 强钩子</h3>
+                              <p className="text-white italic bg-slate-950 p-2 rounded border border-slate-800">"{state.analysis.hook}"</p>
+                            </div>
+
+                            <div>
+                                <h3 className="text-slate-500 font-bold text-xs mb-1">👥 目标受众</h3>
+                                <p className="text-slate-300 text-xs">{state.analysis.targetAudience}</p>
                             </div>
                            
                            <div>
-                              <h3 className="text-slate-500 font-bold uppercase text-xs mb-1">💡 卖点提炼</h3>
+                              <h3 className="text-slate-500 font-bold text-xs mb-1">💡 卖点提炼</h3>
                               <p className="text-slate-400 text-xs leading-relaxed">{state.analysis.sellingPoints}</p>
+                           </div>
+
+                           <div>
+                              <h3 className="text-slate-500 font-bold text-xs mb-1">😣 核心痛点</h3>
+                              <p className="text-slate-400 text-xs leading-relaxed">{state.analysis.painPoints}</p>
+                           </div>
+
+                           <div>
+                              <h3 className="text-slate-500 font-bold text-xs mb-1">🧍 模特要求</h3>
+                              <p className="text-slate-400 text-xs leading-relaxed">{state.analysis.modelRequirements}</p>
+                           </div>
+
+                           <div>
+                              <h3 className="text-slate-500 font-bold text-xs mb-1">🧩 素材匹配策略</h3>
+                              <p className="text-slate-400 text-xs leading-relaxed">{state.analysis.assetMatchingGuidance}</p>
+                           </div>
+
+                           <div>
+                              <h3 className="text-slate-500 font-bold text-xs mb-1">🏡 背景策略</h3>
+                              <p className="text-slate-400 text-xs leading-relaxed">{state.analysis.backgroundGuidance}</p>
+                           </div>
+
+                           <div>
+                              <h3 className="text-slate-500 font-bold text-xs mb-1">📸 真实度策略</h3>
+                              <p className="text-slate-400 text-xs leading-relaxed">{state.analysis.realismGuidance}</p>
+                           </div>
+
+                           <div>
+                              <h3 className="text-slate-500 font-bold text-xs mb-1">🎬 参考视频拆解</h3>
+                              <p className="text-slate-400 text-xs leading-relaxed">{state.analysis.referenceVideoAnalysis}</p>
+                           </div>
+
+                           <div>
+                              <h3 className="text-slate-500 font-bold text-xs mb-1">📝 参考视频脚本与画面提取</h3>
+                              <p className="text-slate-400 text-xs leading-relaxed">{state.analysis.referenceVideoScriptExtraction}</p>
+                           </div>
+
+                           <div>
+                              <h3 className="text-slate-500 font-bold text-xs mb-1">✍️ 参考视频重塑策略</h3>
+                              <p className="text-slate-400 text-xs leading-relaxed">{state.analysis.referenceVideoRewrite}</p>
+                           </div>
+
+                           <div>
+                              <h3 className="text-slate-500 font-bold text-xs mb-1">🧭 结构保留与替换计划</h3>
+                              <p className="text-slate-400 text-xs leading-relaxed">{state.analysis.referenceVideoStructurePlan}</p>
+                           </div>
+
+                           <div>
+                              <h3 className="text-slate-500 font-bold text-xs mb-1">⏱️ 时长重塑计划</h3>
+                              <p className="text-slate-400 text-xs leading-relaxed">{state.analysis.referenceVideoTimingPlan}</p>
+                           </div>
+
+                           <div>
+                              <h3 className="text-slate-500 font-bold text-xs mb-1">✅ Harness 检查结论</h3>
+                              <p className="text-slate-400 text-xs leading-relaxed">{state.analysis.referenceVideoHarnessCheck}</p>
+                           </div>
+
+                           <div className="bg-slate-950/70 p-4 rounded-lg border border-slate-800">
+                              <h3 className="text-slate-300 font-bold text-xs mb-2">🧱 Harness 执行约束</h3>
+                              <p className="text-slate-400 text-xs leading-relaxed">{state.analysis.executionHarness}</p>
                            </div>
                         </div>
                       )}
@@ -534,7 +908,7 @@ export default function AppClient({ initialProfile }: AppClientProps) {
                         </span>
                      </div>
                      <div className="flex items-center gap-3">
-                        <span className="text-sm text-slate-400">当前模式:</span>
+                        <span className="text-sm text-slate-400">当前模式</span>
                         <div className="text-sm px-3 py-1 bg-slate-800 rounded-full text-white border border-slate-700 font-medium shadow-sm">
                            {VIDEO_MODES.find(m => m.value === state.settings.videoMode)?.label}
                         </div>
@@ -571,19 +945,9 @@ export default function AppClient({ initialProfile }: AppClientProps) {
                {previewMedia.type === 'image' ? (
                  <img src={previewMedia.url} className="max-h-[85vh] w-auto object-contain mx-auto" />
                ) : (
-                  <div className="bg-slate-900 p-20 rounded-xl flex flex-col items-center gap-4">
-                     <div className="w-20 h-20 rounded-full bg-brand-600 flex items-center justify-center animate-pulse">
-                        <div className="w-full h-1 bg-white mx-4 rounded-full"></div>
-                     </div>
-                     <audio src={previewMedia.url} controls className="w-96" />
-                     <a 
-                       href={previewMedia.url}
-                       download="preview-audio.wav"
-                       className="flex items-center gap-2 text-brand-400 hover:text-white"
-                     >
-                       <Download size={16} /> 下载音频
-                     </a>
-                  </div>
+                 <div className="bg-black p-4 rounded-xl">
+                    <video src={previewMedia.url} controls className="max-h-[85vh] max-w-[85vw]" />
+                 </div>
                )}
               </div>
            </div>

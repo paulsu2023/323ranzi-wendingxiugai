@@ -1,13 +1,14 @@
 'use client';
 import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { isDemoMode } from '@/lib/config';
 import { useRouter } from 'next/navigation';
 import { Sparkles, Mail, Lock, Eye, EyeOff, ArrowRight, User, AlertCircle, CheckCircle } from 'lucide-react';
 import Link from 'next/link';
 
 export default function LoginPage() {
   const router = useRouter();
-  const supabase = createClient();
+  const supabase = isDemoMode ? null : createClient();
   const [mode, setMode] = useState<'login' | 'register' | 'forgot'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -22,6 +23,11 @@ export default function LoginPage() {
     setMessage(null);
 
     try {
+      if (!supabase) {
+        router.push('/app');
+        return;
+      }
+
       if (mode === 'login') {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
@@ -75,6 +81,19 @@ export default function LoginPage() {
 
         {/* Card */}
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 shadow-2xl">
+          {isDemoMode && (
+            <div className="bg-amber-950/40 border border-amber-800/40 text-amber-200 rounded-xl p-4 mb-6 text-sm">
+              当前为本地演示模式，认证已跳过。你可以直接进入创作台。
+              <button
+                type="button"
+                onClick={() => router.push('/app')}
+                className="mt-3 w-full py-2.5 rounded-lg bg-amber-500 text-slate-950 font-bold"
+              >
+                直接进入
+              </button>
+            </div>
+          )}
+
           {/* Mode tabs */}
           <div className="flex gap-1 bg-slate-950 p-1 rounded-xl mb-8">
             <button
