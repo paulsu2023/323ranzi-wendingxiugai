@@ -456,11 +456,11 @@ export const Storyboard: React.FC<Props> = ({
           // Generate Start Image
           await handleGenerateImage(scene, 'start', undefined, scene1.startImage.data); // Force injection of Scene 1
           
-          if (videoMode === VideoMode.Intermediate) {
-               await handleGenerateImage(scene, 'middle', undefined, scene1.startImage.data);
-          }
           if (videoMode === VideoMode.StartEnd || videoMode === VideoMode.Intermediate) {
                await handleGenerateImage(scene, 'end', undefined, scene1.startImage.data);
+          }
+          if (videoMode === VideoMode.Intermediate) {
+               await handleGenerateImage(scene, 'middle', undefined, scene1.startImage.data);
           }
       }
       
@@ -530,7 +530,9 @@ export const Storyboard: React.FC<Props> = ({
       
       if (type === 'middle') {
         const startImg = scene.startImage?.data;
+        const endImg = scene.endImage?.data;
         if (startImg) referenceImages.unshift(startImg);
+        if (endImg) referenceImages.unshift(endImg);
       } 
       else if (type === 'end') {
           const startImg = scene.startImage?.data;
@@ -616,6 +618,49 @@ export const Storyboard: React.FC<Props> = ({
            onUpdateScene(scene.id, finalUpdate);
        }
     }
+  };
+
+  const handleGenerateStartChain = async (scene: StoryboardScene) => {
+    const startBase64 = await handleGenerateImage(scene, 'start');
+    if (!startBase64 || videoMode === VideoMode.Standard) {
+      return;
+    }
+
+    const endBase64 = await handleGenerateImage(
+      {
+        ...scene,
+        startImage: {
+          type: 'image',
+          url: `data:image/jpeg;base64,${startBase64}`,
+          data: startBase64,
+          mimeType: 'image/jpeg',
+        },
+      },
+      'end'
+    );
+
+    if (videoMode !== VideoMode.Intermediate || !endBase64) {
+      return;
+    }
+
+    await handleGenerateImage(
+      {
+        ...scene,
+        startImage: {
+          type: 'image',
+          url: `data:image/jpeg;base64,${startBase64}`,
+          data: startBase64,
+          mimeType: 'image/jpeg',
+        },
+        endImage: {
+          type: 'image',
+          url: `data:image/jpeg;base64,${endBase64}`,
+          data: endBase64,
+          mimeType: 'image/jpeg',
+        },
+      },
+      'middle'
+    );
   };
 
   const handleGenerateVideo = async (scene: StoryboardScene) => {
@@ -903,7 +948,7 @@ export const Storyboard: React.FC<Props> = ({
                                 label="首帧图" 
                                 asset={scene.startImage} 
                                 loading={scene.isGeneratingStart} 
-                                onGen={() => handleGenerateImage(scene, 'start')} 
+                                onGen={() => handleGenerateStartChain(scene)} 
                                 onStop={() => handleStopGeneration(scene.id, 'start')}
                                 onPreview={onPreview}
                                 onViewPrompt={() => setPromptModal({ isOpen: true, content: scene.prompt.textPrompt || scene.visual_en })}
