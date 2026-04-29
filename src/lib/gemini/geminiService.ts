@@ -1104,7 +1104,7 @@ Return a high-conversion TikTok storyboard package with deep product analysis, c
     try {
       response = await withRetry(() => client.models.generateContent({
         model,
-        contents: { parts },
+        contents: [{ role: 'user', parts }],
         config: generationConfig,
       }));
       break;
