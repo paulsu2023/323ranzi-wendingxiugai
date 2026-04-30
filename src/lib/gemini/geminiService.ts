@@ -46,6 +46,14 @@ const IMAGE_POSITIVE_ENHANCEMENTS = [
 
 const IMAGE_NEGATIVE_PROMPT = '--no messy, clutter, dirty, trash, illustration, 3d render, plastic skin, smooth skin, airbrushed, cartoon, morphed face, bad hands, mirror, selfie, reflection in mirror, holding phone, camera in mirror, collage, split screen, diptych, triptych, storyboard layout, contact sheet, mosaic, grid layout, tiled composition, duplicated subject, multiple panels';
 const REFERENCE_PRIORITY = '产品图 > 模特图 > 背景图 > 参考视频 > 用户补充创意';
+const HARNESS_PRIORITY_LAYERS = [
+  'HARD_FACTS: uploaded product/model/background facts and explicit user source text.',
+  'ASSET_LOCKS: product fit, identity, environment placement, and reference priority.',
+  'MOTION_LOCKS: start-frame continuity, front/three-quarter orientation, no unsupported back reveal.',
+  'OUTPUT_SCHEMA: required JSON fields, Chinese display fields, English generation prompts.',
+  'STYLE_PREFS: TikTok UGC realism, premium home aesthetic, natural skin/fabric/light.',
+  'MARKETING_GOALS: hook strength, pacing, pain points, CTA, publish package.',
+].join('\n- ');
 const HARNESS_PROTOCOL = [
   '所有智能体必须遵守同一套约束，不得各自自由发挥。',
   '当上传了产品图时，颜色、材质、版型、五金、覆盖面积和细节以产品图为唯一事实源。',
@@ -142,14 +150,24 @@ function inferPresentationGenderLock(product: ProductData): GenderLock {
   return 'unknown';
 }
 
-function pickAssignedVoice(genderLock: GenderLock) {
+function stableHash(value: string) {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return Math.abs(hash >>> 0);
+}
+
+function pickAssignedVoice(genderLock: GenderLock, seedText = '') {
   const candidates = genderLock === 'female'
     ? FEMALE_VOICE_OPTIONS
     : genderLock === 'male'
       ? MALE_VOICE_OPTIONS
       : VOICE_OPTIONS;
 
-  return candidates[Math.floor(Math.random() * candidates.length)];
+  const seed = normalizeWhitespace(seedText) || genderLock || 'default';
+  return candidates[stableHash(seed) % candidates.length];
 }
 
 function buildFallbackImagePrompt(scene: Partial<SceneDraft>, masterReference?: string) {
@@ -219,7 +237,7 @@ function buildReferenceVideoAnalysisFallback(product: ProductData) {
     return '未上传参考视频，本次脚本将主要根据产品图、模特图、背景图和你的创意方向进行原创拆解。';
   }
 
-  return '已上传参考视频，系统会从美国市场带货转化视角拆解其中的开头钩子、镜头节奏、口播结构、卖点推进顺序、产品展示方式、字幕/文案表达和收尾转化动作。';
+  return '已上传参考视频，系统会从目标市场带货转化视角拆解其中的开头钩子、镜头节奏、口播结构、卖点推进顺序、产品展示方式、字幕/文案表达和收尾转化动作。';
 }
 
 function buildReferenceVideoScriptExtractionFallback(product: ProductData) {
@@ -227,7 +245,7 @@ function buildReferenceVideoScriptExtractionFallback(product: ProductData) {
     return '未上传参考视频，因此没有可提取的原视频脚本和画面结构。';
   }
 
-  return '系统会先提取参考视频中的镜头顺序、关键画面、核心口播/字幕表达、钩子句式、问题切入点、卖点推进和 CTA 结构，再按美国市场高转化短视频逻辑重组到当前商品上。';
+  return '系统会先提取参考视频中的镜头顺序、关键画面、核心口播/字幕表达、钩子句式、问题切入点、卖点推进和 CTA 结构，再按目标市场高转化短视频逻辑重组到当前商品上。';
 }
 
 function buildReferenceVideoRewriteFallback(product: ProductData) {
@@ -307,6 +325,7 @@ function buildReferenceVideoHarnessCheckFallback(product: ProductData) {
 function buildExecutionHarnessFallback(product: ProductData, voiceName: string, voiceProfile: string) {
   const genderLock = inferPresentationGenderLock(product);
   const clauses = [
+    '约束仲裁顺序固定为：HARD_FACTS > ASSET_LOCKS > MOTION_LOCKS > OUTPUT_SCHEMA > STYLE_PREFS > MARKETING_GOALS。发生冲突时，永远优先执行更靠前的层级。',
     `执行优先级固定为：${REFERENCE_PRIORITY}。`,
     '各智能体只能在给定素材和约束内优化，不允许为了“更好看”而自行改商品、改模特、改背景。',
     `配音人设固定为 ${voiceName}，声音画像为 ${voiceProfile}，所有镜头口播必须保持同一说话人气质与能量级别。`,
@@ -522,6 +541,75 @@ function enforceSceneGenderLock(scene: any, genderLock: GenderLock) {
     action: withPrefix(scene?.action, zhLead),
     action_en: withPrefix(scene?.action_en || scene?.action, enLead),
   };
+}
+
+function textMatchesAny(text: string, patterns: RegExp[]) {
+  return patterns.some((pattern) => pattern.test(text));
+}
+
+function buildSceneHarnessCorrections(
+  scene: Partial<SceneDraft>,
+  product: ProductData,
+  genderLock: GenderLock
+) {
+  const combinedText = normalizeWhitespace([
+    scene?.visual,
+    scene?.visual_en,
+    scene?.action,
+    scene?.action_en,
+    scene?.camera,
+    scene?.camera_en,
+  ].filter(Boolean).join(' '));
+  const corrections = {
+    imageClauses: [] as string[],
+    videoPositiveMandates: [] as string[],
+    videoNegativeMandates: [] as string[],
+    executionNotes: [] as string[],
+  };
+
+  if (genderLock === 'female' && textMatchesAny(combinedText, [/\b(male|man|men|boy|boys|he|his)\b/i, /男性|男模|男士|男生|男孩/])) {
+    const clause = 'Correction lock: keep the presenter/wearer female only; ignore and override any male-presenter wording in this scene.';
+    corrections.imageClauses.push(clause);
+    corrections.videoPositiveMandates.push(clause);
+    corrections.videoNegativeMandates.push('NO male presenter, NO male wearer, NO male hand-held demo for women’s products.');
+    corrections.executionNotes.push('已检测并覆盖女性展示逻辑冲突：本镜头必须保持女性模特/女性穿着展示。');
+  }
+
+  if (genderLock === 'male' && textMatchesAny(combinedText, [/\b(female|woman|women|girl|girls|she|her)\b/i, /女性|女模|女士|女生|女孩/])) {
+    const clause = 'Correction lock: keep the presenter/wearer male only; ignore and override any female-presenter wording in this scene.';
+    corrections.imageClauses.push(clause);
+    corrections.videoPositiveMandates.push(clause);
+    corrections.videoNegativeMandates.push('NO female presenter, NO female wearer, NO female hand-held demo for men’s products.');
+    corrections.executionNotes.push('已检测并覆盖男性展示逻辑冲突：本镜头必须保持男性模特/男性穿着展示。');
+  }
+
+  if ((product.backgroundImages || []).length > 0 && textMatchesAny(combinedText, [/\b(warehouse|factory|industrial shelf|storage room|messy store)\b/i, /工厂|仓库|货架|工业环境/])) {
+    const clause = 'Correction lock: use the uploaded background image as the exact environment; override any warehouse, factory, industrial shelf, or alternate-room wording.';
+    corrections.imageClauses.push(clause);
+    corrections.videoPositiveMandates.push(clause);
+    corrections.videoNegativeMandates.push('NO warehouse, NO factory, NO industrial shelf, NO background swap when a background reference is uploaded.');
+    corrections.executionNotes.push('已检测并覆盖背景冲突：本镜头必须使用上传背景图的空间。');
+  }
+
+  if (textMatchesAny(combinedText, [/\b(turn around|turns around|turn away|turns away|back view|rear view|from behind|spin around|360)\b/i, /转身|背身|背面|后背|从背后|360/])) {
+    const clause = 'Correction lock: keep the subject front-facing or in a stable three-quarter angle; preserve only the product side visible in the start frame.';
+    corrections.imageClauses.push(clause);
+    corrections.videoPositiveMandates.push(clause);
+    corrections.videoNegativeMandates.push('NO turn-around, NO back view, NO rear reveal, NO 360 rotation, NO unsupported hidden-side reconstruction.');
+    corrections.executionNotes.push('已检测并覆盖转身/背面冲突：本镜头必须保持正面或稳定三分之四角度。');
+  }
+
+  return corrections;
+}
+
+function appendExecutionNotes(executionHarness: string, notes: string[]) {
+  const uniqueNotes = notes
+    .map(normalizeWhitespace)
+    .filter(Boolean)
+    .filter((note, index, list) => list.indexOf(note) === index);
+
+  if (!uniqueNotes.length) return executionHarness;
+  return appendUniqueClauses(executionHarness, uniqueNotes);
 }
 
 function containsChinese(text: string) {
@@ -861,10 +949,19 @@ export const analyzeProduct = async (
   preferredModel?: string
 ): Promise<any> => {
   const genderLock = inferPresentationGenderLock(product);
-  const assignedVoice = pickAssignedVoice(genderLock);
-  const voiceProfile = VOICE_PROFILES[assignedVoice] || 'Standard Voice';
   const defaultMarket = TARGET_MARKETS.find(m => m.value === 'US') || TARGET_MARKETS[0];
   const market = TARGET_MARKETS.find(m => m.value === product.targetMarket) || defaultMarket;
+  const assignedVoice = pickAssignedVoice(genderLock, [
+    product.targetMarket,
+    product.title,
+    product.description,
+    product.creativeIdeas,
+    product.referenceVideo?.fileName,
+    String((product.images || []).length),
+    String((product.modelImages || []).length),
+    String((product.backgroundImages || []).length),
+  ].filter(Boolean).join('|'));
+  const voiceProfile = VOICE_PROFILES[assignedVoice] || 'Standard Voice';
   const referenceHarness = buildReferenceLockClauses(product, assignedVoice, voiceProfile);
   const timingPlan = buildReferenceVideoTimingPlan(product, sceneCount);
   const effectiveSceneCount = product.referenceVideo
@@ -891,9 +988,10 @@ export const analyzeProduct = async (
 5. 导演大师 + Veo 3.1 Prompt Engineer：负责分镜、运镜、文生图 prompt、图生视频 JSON manifest。
 6. TikTok 合规专员：检查 ${market.label} 市场文化和 TikTok 广告风险。
 7. Reference Harness 工程师：负责锁定素材优先级、禁止随意发挥、确保所有智能体严格执行同一套约束。
-你必须始终站在“美国 TikTok 电商营销专家”的视角处理参考视频：不仅要看画面，还要拆解它为什么能转化、针对的用户情绪是什么、问题是怎么被放大的、卖点是如何被证明的、CTA 为什么会成立。
+你必须始终站在“${market.label} TikTok 电商营销专家”的视角处理参考视频：不仅要看画面，还要拆解它为什么能转化、针对的用户情绪是什么、问题是怎么被放大的、卖点是如何被证明的、CTA 为什么会成立。
 
 硬性规则：
+- 约束仲裁顺序固定为：HARD_FACTS > ASSET_LOCKS > MOTION_LOCKS > OUTPUT_SCHEMA > STYLE_PREFS > MARKETING_GOALS。发生冲突时，永远优先执行更靠前的层级。
 - 目标市场默认按 ${market.label} 处理，文化审美必须符合 ${market.culture}。
 - Voice dictates visuals：配音角色是 ${assignedVoice}，声音画像是 ${voiceProfile}。Scene 1 的人物必须是声音的物理化身。
 - Scene 1 必须定义明确模特：年龄、性别、种族/文化特征、发型、穿搭、气质。
@@ -936,6 +1034,9 @@ export const analyzeProduct = async (
 
 Harness Protocol:
 - ${HARNESS_PROTOCOL}
+
+Harness Priority Layers:
+- ${HARNESS_PRIORITY_LAYERS}
 
 图像 prompt 附加要求：
 - 必须内置高真实度方向：${IMAGE_POSITIVE_ENHANCEMENTS}
@@ -1160,29 +1261,33 @@ Return a high-conversion TikTok storyboard package with deep product analysis, c
       result.scenes = result.scenes.slice(0, targetSceneCount);
     }
   }
+  const executionHarnessNotes: string[] = [];
   result.scenes = result.scenes.map((scene: any, index: number) => {
     const genderLockedScene = enforceSceneGenderLock(scene, genderLock);
+    const sceneCorrections = buildSceneHarnessCorrections(genderLockedScene, product, genderLock);
+    executionHarnessNotes.push(...sceneCorrections.executionNotes);
     const baseScene = {
       ...genderLockedScene,
       prompt: {
         ...genderLockedScene.prompt,
         textPrompt: appendUniqueClauses(
           normalizeWhitespace(genderLockedScene?.prompt?.textPrompt) || buildFallbackImagePrompt(genderLockedScene, index === 0 ? undefined : masterReference),
-          referenceHarness.imageClauses
+          [...referenceHarness.imageClauses, ...sceneCorrections.imageClauses]
         ),
         videoPrompt: enforceVideoPromptHarness(
           normalizeVeoProductionManifestPrompt(
             genderLockedScene,
             normalizeWhitespace(genderLockedScene?.prompt?.videoPrompt || genderLockedScene?.prompt?.imagePrompt)
           ),
-          referenceHarness.videoPositiveMandates,
-          referenceHarness.videoNegativeMandates
+          [...referenceHarness.videoPositiveMandates, ...sceneCorrections.videoPositiveMandates],
+          [...referenceHarness.videoNegativeMandates, ...sceneCorrections.videoNegativeMandates]
         ),
       },
     };
 
     return normalizeScene(baseScene, index, index === 0 ? undefined : masterReference);
   });
+  result.executionHarness = appendExecutionNotes(result.executionHarness, executionHarnessNotes);
 
   return result;
 };
