@@ -73,6 +73,7 @@ export interface AnalysisResult {
   backupHashtags: string[];
   executionHarness: string;
   assignedVoice: string;
+  assignedVoiceProfile?: string;
   complianceCheck: ComplianceCheck;
   scenes: SceneDraft[];
 }

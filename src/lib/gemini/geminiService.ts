@@ -2,21 +2,16 @@ import { GoogleGenAI, Type, Modality, GenerateContentResponse } from "@google/ge
 import { ProductData, AspectRatio, ImageResolution, SceneDraft } from "@/types";
 import { ANALYSIS_MODELS, GEMINI_MODEL_ANALYSIS, GEMINI_MODEL_ANALYSIS_FALLBACK, GEMINI_MODEL_TTS } from "@/constants";
 import { buildVeoProductionManifest, normalizeVeoProductionManifestPrompt } from "@/lib/flow/veoManifest";
+import {
+  FEMALE_VOICE_OPTIONS,
+  MALE_VOICE_OPTIONS,
+  VOICE_OPTIONS,
+  getVeoVoiceProfileText,
+} from "@/lib/voiceProfiles";
 
 const GEMINI_MODEL_IMAGE = 'gemini-3.1-pro-image-preview';
 
-export const VOICE_OPTIONS = ['Kore', 'Fenrir', 'Puck', 'Charon', 'Zephyr'];
-
-const FEMALE_VOICE_OPTIONS = ['Kore', 'Zephyr'];
-const MALE_VOICE_OPTIONS = ['Fenrir', 'Puck', 'Charon'];
-
-const VOICE_PROFILES: Record<string, string> = {
-  Kore: 'Female, Young Adult (20-30s), Clear, Energetic, Professional tone.',
-  Fenrir: 'Male, Adult (30-40s), Deep, Authoritative, Resonant tone.',
-  Puck: 'Male, Young Adult (20s), Playful, Casual, Friendly tone.',
-  Charon: 'Male, Older Adult (50s+), Gravelly, Cinematic, Serious tone.',
-  Zephyr: 'Female, Young Adult (20-30s), Soft, Breathless, Calm, ASMR-style.',
-};
+export { VOICE_OPTIONS };
 
 const TARGET_MARKETS = [
   { value: 'US', label: 'United States (美国)', language: 'English', culture: 'Western, diverse American style, energetic and direct' },
@@ -961,7 +956,7 @@ export const analyzeProduct = async (
     String((product.modelImages || []).length),
     String((product.backgroundImages || []).length),
   ].filter(Boolean).join('|'));
-  const voiceProfile = VOICE_PROFILES[assignedVoice] || 'Standard Voice';
+  const voiceProfile = getVeoVoiceProfileText(assignedVoice, market.language);
   const referenceHarness = buildReferenceLockClauses(product, assignedVoice, voiceProfile);
   const timingPlan = buildReferenceVideoTimingPlan(product, sceneCount);
   const effectiveSceneCount = product.referenceVideo
@@ -1117,6 +1112,7 @@ Return a high-conversion TikTok storyboard package with deep product analysis, c
         backupHashtags: { type: Type.ARRAY, items: { type: Type.STRING } },
         executionHarness: { type: Type.STRING },
         assignedVoice: { type: Type.STRING },
+        assignedVoiceProfile: { type: Type.STRING },
         complianceCheck: {
           type: Type.OBJECT,
           properties: {
@@ -1236,6 +1232,7 @@ Return a high-conversion TikTok storyboard package with deep product analysis, c
   const masterReference = result.scenes?.[0]?.visual_en || result.modelRequirements || '';
 
   result.assignedVoice = assignedVoice;
+  result.assignedVoiceProfile = voiceProfile;
   result.productSpecs = normalizeWhitespace(result.productSpecs);
   result.modelRequirements = normalizeWhitespace(result.modelRequirements);
   result.backgroundGuidance = normalizeWhitespace(result.backgroundGuidance);
@@ -1277,7 +1274,8 @@ Return a high-conversion TikTok storyboard package with deep product analysis, c
         videoPrompt: enforceVideoPromptHarness(
           normalizeVeoProductionManifestPrompt(
             genderLockedScene,
-            normalizeWhitespace(genderLockedScene?.prompt?.videoPrompt || genderLockedScene?.prompt?.imagePrompt)
+            normalizeWhitespace(genderLockedScene?.prompt?.videoPrompt || genderLockedScene?.prompt?.imagePrompt),
+            { voiceName: assignedVoice, voiceProfile }
           ),
           [...referenceHarness.videoPositiveMandates, ...sceneCorrections.videoPositiveMandates],
           [...referenceHarness.videoNegativeMandates, ...sceneCorrections.videoNegativeMandates]

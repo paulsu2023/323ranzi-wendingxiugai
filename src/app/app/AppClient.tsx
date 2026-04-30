@@ -927,6 +927,7 @@ export default function AppClient({ initialProfile }: AppClientProps) {
                      modelImages={state.product.modelImages}
                      backgroundImages={state.product.backgroundImages}
                      assignedVoice={state.analysis?.assignedVoice || 'Kore'}
+                     assignedVoiceProfile={state.analysis?.assignedVoiceProfile}
                      onUpdateScene={updateScene}
                      onPreview={(url, type) => setPreviewMedia({url, type})}
                      productTitle={state.product.title}
