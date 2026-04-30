@@ -288,6 +288,8 @@ export const Storyboard: React.FC<Props> = ({
   const [expandedScene, setExpandedScene] = useState<string | null>(scenes[0]?.id || null);
   const [isGeneratingAll, setIsGeneratingAll] = useState(false);
   const [promptModal, setPromptModal] = useState<{ isOpen: boolean; content: string } | null>(null);
+  const [imageVariantCount, setImageVariantCount] = useState(1);
+  const [videoVariantCount, setVideoVariantCount] = useState(1);
   
   // Track abort controllers for each scene and generation type
   const abortControllers = useRef<Map<string, AbortController>>(new Map());
@@ -307,6 +309,7 @@ export const Storyboard: React.FC<Props> = ({
   };
 
   const selectedImageModel = IMAGE_MODELS.find((model) => model.value === imageModel)?.label || imageModel;
+  const variantOptions = [1, 2, 3, 4];
 
   const getVideoManifestPrompt = (scene: StoryboardScene) => {
       const customPrompt = scene.prompt.videoPromptCustom
@@ -557,7 +560,7 @@ export const Storyboard: React.FC<Props> = ({
           imageModel,
           cameraPrompt,
           stylePrompt,
-          1
+          imageVariantCount
       );
 
       if (!isLatestGeneration(generationKey, generationToken)) {
@@ -569,38 +572,6 @@ export const Storyboard: React.FC<Props> = ({
       if (type === 'start') onUpdateScene(scene.id, { startImage: primaryAsset });
       else if (type === 'end') onUpdateScene(scene.id, { endImage: primaryAsset });
       else if (type === 'middle') onUpdateScene(scene.id, { middleImage: primaryAsset });
-
-      void (async () => {
-          try {
-              const extraResult = await generateImageAPI(
-                  prompt,
-                  aspectRatio,
-                  targetResolution,
-                  referenceImages,
-                  imageModel,
-                  cameraPrompt,
-                  stylePrompt,
-                  3
-              );
-
-              if (!isLatestGeneration(generationKey, generationToken)) {
-                  return;
-              }
-
-              const currentAsset = getSceneAsset(scene.id, type);
-              const mergedAsset = buildImageAsset(
-                  currentAsset?.data || primaryResult.base64,
-                  extraResult.images,
-                  currentAsset
-              );
-
-              if (type === 'start') onUpdateScene(scene.id, { startImage: mergedAsset });
-              else if (type === 'end') onUpdateScene(scene.id, { endImage: mergedAsset });
-              else if (type === 'middle') onUpdateScene(scene.id, { middleImage: mergedAsset });
-          } catch (error) {
-              console.warn(`补充候选图失败: ${scene.id}/${type}`, error);
-          }
-      })();
 
       return primaryResult.base64;
     } catch (e: any) {
@@ -683,7 +654,7 @@ export const Storyboard: React.FC<Props> = ({
         if (!hasVeoProductionManifest(prompt)) {
             throw new Error('图片转视频 JSON Manifest 格式无效：缺少 veo_production_manifest');
         }
-        const primaryResult = await generateVideoAPI(prompt, aspectRatio, referenceImages, cameraPrompt, stylePrompt, 1);
+        const primaryResult = await generateVideoAPI(prompt, aspectRatio, referenceImages, cameraPrompt, stylePrompt, videoVariantCount);
 
         if (!isLatestGeneration(generationKey, generationToken)) {
             return;
@@ -691,21 +662,6 @@ export const Storyboard: React.FC<Props> = ({
 
         const primaryAsset = buildVideoAsset(primaryResult.url, primaryResult.videos);
         onUpdateScene(scene.id, { video: primaryAsset });
-
-        void (async () => {
-            try {
-                const extraResult = await generateVideoAPI(prompt, aspectRatio, referenceImages, cameraPrompt, stylePrompt, 3);
-                if (!isLatestGeneration(generationKey, generationToken)) {
-                    return;
-                }
-
-                const currentAsset = getSceneAsset(scene.id, 'video');
-                const mergedAsset = buildVideoAsset(currentAsset?.url || primaryResult.url, extraResult.videos, currentAsset);
-                onUpdateScene(scene.id, { video: mergedAsset });
-            } catch (error) {
-                console.warn(`补充候选视频失败: ${scene.id}`, error);
-            }
-        })();
     } catch (e) {
         onUpdateScene(scene.id, { error: `视频失败: ${(e as Error).message}` });
     } finally {
@@ -764,11 +720,39 @@ export const Storyboard: React.FC<Props> = ({
            
             <div className="flex items-center gap-3">
                  {/* Model Badge (New) */}
-                 <div className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 flex items-center gap-2 hidden lg:flex">
-                     <span className="text-[10px] font-bold text-slate-500">模型</span>
-                     <span className="text-[10px] text-sky-400 font-mono">
-                         {selectedImageModel}
-                     </span>
+                <div className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 flex items-center gap-2 hidden lg:flex">
+                    <span className="text-[10px] font-bold text-slate-500">模型</span>
+                    <span className="text-[10px] text-sky-400 font-mono">
+                        {selectedImageModel}
+                    </span>
+                </div>
+
+                <div className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 flex items-center gap-2">
+                    <span className="text-[10px] font-bold text-slate-500">图候选</span>
+                    <select
+                        value={imageVariantCount}
+                        onChange={(event) => setImageVariantCount(Number(event.target.value))}
+                        className="bg-black/30 border border-slate-700 rounded px-2 py-1 text-[10px] text-white focus:outline-none focus:border-brand-500"
+                        title="每次生成分镜图的候选数量，默认 1 更稳定"
+                    >
+                        {variantOptions.map((count) => (
+                            <option key={`image-${count}`} value={count}>{count} 张</option>
+                        ))}
+                    </select>
+                </div>
+
+                <div className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 flex items-center gap-2">
+                    <span className="text-[10px] font-bold text-slate-500">视频候选</span>
+                    <select
+                        value={videoVariantCount}
+                        onChange={(event) => setVideoVariantCount(Number(event.target.value))}
+                        className="bg-black/30 border border-slate-700 rounded px-2 py-1 text-[10px] text-white focus:outline-none focus:border-brand-500"
+                        title="每次生成分镜视频的候选数量，默认 1 更稳定"
+                    >
+                        {variantOptions.map((count) => (
+                            <option key={`video-${count}`} value={count}>{count} 个</option>
+                        ))}
+                    </select>
                 </div>
 
                 {/* Resolution Badge */}
