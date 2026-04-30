@@ -7,6 +7,7 @@ import { generateImageAPI, generateVideoAPI, optimizePromptAPI } from '@/service
 import { AnalysisLoader } from './AnalysisLoader';
 import { CAMERA_DEVICES, IMAGE_MODELS, SHOOTING_STYLES } from '@/constants';
 import { hasVeoProductionManifest, normalizeVeoProductionManifestPrompt } from '@/lib/flow/veoManifest';
+import { getVeoVoiceProfileText } from '@/lib/voiceProfiles';
 
 const buildMediaProxyUrl = (url: string, filename?: string, download = false) => {
   if (!url || url.startsWith('data:')) {
@@ -276,13 +277,14 @@ interface Props {
   modelImages: string[];
   backgroundImages: string[];
   assignedVoice: string;
+  assignedVoiceProfile?: string;
   onUpdateScene: (id: string, updates: Partial<StoryboardScene>) => void;
   onPreview: (url: string, type: 'image' | 'video') => void;
   productTitle: string;
 }
 
 export const Storyboard: React.FC<Props> = ({ 
-    scenes, videoMode, aspectRatio, resolution, imageModel, cameraDevice, shootingStyle, productImages, modelImages, backgroundImages, assignedVoice,
+    scenes, videoMode, aspectRatio, resolution, imageModel, cameraDevice, shootingStyle, productImages, modelImages, backgroundImages, assignedVoice, assignedVoiceProfile,
     onUpdateScene, onPreview, productTitle
 }) => {
   const [expandedScene, setExpandedScene] = useState<string | null>(scenes[0]?.id || null);
@@ -307,12 +309,16 @@ export const Storyboard: React.FC<Props> = ({
   };
 
   const selectedImageModel = IMAGE_MODELS.find((model) => model.value === imageModel)?.label || imageModel;
+  const effectiveVoiceProfile = assignedVoiceProfile || getVeoVoiceProfileText(assignedVoice);
 
   const getVideoManifestPrompt = (scene: StoryboardScene) => {
       const customPrompt = scene.prompt.videoPromptCustom
           ? (scene.prompt.videoPrompt || scene.prompt.imagePrompt || '')
           : undefined;
-      return normalizeVeoProductionManifestPrompt(scene, customPrompt, { voiceName: assignedVoice });
+      return normalizeVeoProductionManifestPrompt(scene, customPrompt, {
+          voiceName: assignedVoice,
+          voiceProfile: effectiveVoiceProfile,
+      });
   };
 
   const buildStoryboardVideoPrompt = (scene: StoryboardScene) => {

@@ -14,8 +14,16 @@ type VoiceOptions = {
   voiceProfile?: string;
 };
 
+type JsonRecord = Record<string, unknown>;
+
 function normalizeText(value?: string | null) {
   return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function asRecord(value: unknown): JsonRecord | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as JsonRecord
+    : null;
 }
 
 function guessShotType(cameraText: string) {
@@ -79,6 +87,74 @@ function buildMood(action: string) {
   return 'Engaging, Authentic, Conversion-focused';
 }
 
+function buildVoiceContinuityRules() {
+  return [
+    'Use the same speaker voice across every scene in this task.',
+    'Do not change gender, age impression, accent, pitch range, timbre, pace, or recording style.',
+    'Treat all spoken dialogue as coming from this named speaker only.',
+    'No extra speakers, no alternate narrator, no voice cloning from the scene environment.',
+  ];
+}
+
+function pushUniqueClause(target: string[], value: string) {
+  const normalized = normalizeText(value);
+  if (!normalized) return;
+  if (!target.some((item) => normalizeText(item).toLowerCase() === normalized.toLowerCase())) {
+    target.push(normalized);
+  }
+}
+
+function buildVoiceMandate(speakerName: string, voiceProfile: string) {
+  return `Voice continuity lock: all spoken dialogue must use the same named speaker ${speakerName}. Voice profile: ${voiceProfile}. Maintain the same vocal timbre, pitch range, age impression, accent, pace, emotion, recording style, and delivery energy across the full storyboard.`;
+}
+
+function applyVoiceContinuityToManifest(parsed: JsonRecord, options: VoiceOptions) {
+  const manifest = asRecord(parsed.veo_production_manifest);
+  if (!manifest || (!options.voiceName && !options.voiceProfile)) return parsed;
+
+  const speakerName = normalizeText(options.voiceName) || 'Assigned narrator';
+  const voiceProfile = normalizeText(options.voiceProfile) || 'Task-level narrator voice profile. Keep the same gender, age impression, accent, timbre, pitch, pace, emotion, and recording style across the full storyboard.';
+
+  const mandates = asRecord(manifest.director_mandates) || {};
+  manifest.director_mandates = mandates;
+  const positive = Array.isArray(mandates.positive_mandates)
+    ? mandates.positive_mandates.filter((item): item is string => typeof item === 'string')
+    : [];
+  const negative = Array.isArray(mandates.negative_mandates)
+    ? mandates.negative_mandates.filter((item): item is string => typeof item === 'string')
+    : [];
+
+  pushUniqueClause(positive, buildVoiceMandate(speakerName, voiceProfile));
+  pushUniqueClause(negative, 'NO different narrator voice, NO age/accent/timbre drift, NO extra speakers, NO background voices over the dialogue.');
+  mandates.positive_mandates = positive;
+  mandates.negative_mandates = negative;
+
+  const timeline = Array.isArray(manifest.timeline_script) ? manifest.timeline_script : [];
+  timeline.forEach((segment) => {
+    const segmentRecord = asRecord(segment);
+    if (!segmentRecord) return;
+    const elements = asRecord(segmentRecord.elements) || {};
+    const audioScape = asRecord(elements.audio_scape) || {};
+    const dialogue = asRecord(audioScape.dialogue) || {};
+
+    audioScape.voice_continuity = {
+      speaker: speakerName,
+      voice_profile: voiceProfile,
+      rules: buildVoiceContinuityRules(),
+    };
+    audioScape.dialogue = {
+      ...dialogue,
+      speaker: speakerName,
+      transcript: typeof dialogue.transcript === 'string' ? dialogue.transcript : '',
+      delivery: `Spoken by ${speakerName} using the exact voice profile above. Preserve the same voice identity across all generated clips.`,
+    };
+    elements.audio_scape = audioScape;
+    segmentRecord.elements = elements;
+  });
+
+  return parsed;
+}
+
 export function buildVeoProductionManifest(scene: SceneLike) {
   return buildVeoProductionManifestWithVoice(scene);
 }
@@ -89,16 +165,18 @@ function parseJsonObject(value?: string | null) {
 
   try {
     const parsed = JSON.parse(text);
-    return parsed && typeof parsed === 'object' ? parsed : null;
+    return asRecord(parsed);
   } catch {
     return null;
   }
 }
 
-function extractLegacyVideoPrompt(parsed: any) {
-  if (typeof parsed?.prompt === 'string') return normalizeText(parsed.prompt);
-  if (typeof parsed?.prompt?.videoPrompt === 'string') return normalizeText(parsed.prompt.videoPrompt);
-  if (typeof parsed?.videoPrompt === 'string') return normalizeText(parsed.videoPrompt);
+function extractLegacyVideoPrompt(parsed: JsonRecord) {
+  const prompt = parsed.prompt;
+  const promptRecord = asRecord(prompt);
+  if (typeof prompt === 'string') return normalizeText(prompt);
+  if (typeof promptRecord?.videoPrompt === 'string') return normalizeText(promptRecord.videoPrompt);
+  if (typeof parsed.videoPrompt === 'string') return normalizeText(parsed.videoPrompt);
   return '';
 }
 
@@ -116,7 +194,7 @@ export function normalizeVeoProductionManifestPrompt(
   const parsed = parseJsonObject(text);
 
   if (parsed?.veo_production_manifest) {
-    return JSON.stringify(parsed, null, 2);
+    return JSON.stringify(applyVoiceContinuityToManifest(parsed, options), null, 2);
   }
 
   const legacyVideoPrompt = parsed ? extractLegacyVideoPrompt(parsed) : text;
@@ -137,9 +215,9 @@ export function buildVeoProductionManifestWithVoice(scene: SceneLike, options: V
   const camera = normalizeText(scene.camera_en || scene.camera) || 'Medium close-up with controlled natural movement.';
   const dialogue = normalizeText(scene.dialogue);
   const shotSummary = normalizeText(scene.title) || visual.slice(0, 120);
-  const voiceMandate = options.voiceName
-    ? `Maintain the same speaker identity, vocal timbre, age impression, and delivery energy established for ${options.voiceName}${options.voiceProfile ? ` (${options.voiceProfile})` : ''} across the full storyboard.`
-    : 'Maintain the same speaker identity, vocal timbre, age impression, and delivery energy across the full storyboard.';
+  const speakerName = normalizeText(options.voiceName) || 'Assigned narrator';
+  const voiceProfile = normalizeText(options.voiceProfile) || 'Task-level narrator voice profile. Keep the same gender, age impression, accent, timbre, pitch, pace, emotion, and recording style across the full storyboard.';
+  const voiceMandate = buildVoiceMandate(speakerName, voiceProfile);
 
   const manifest = {
     veo_production_manifest: {
@@ -181,6 +259,7 @@ export function buildVeoProductionManifestWithVoice(scene: SceneLike, options: V
           'NO invented back details, NO unsupported rear view, NO product orientation swap between frames.',
           'NO mirrors, NO shooting into a mirror, NO selfies in mirror, NO phone visible in hand.',
           'NO flicker, exposure pumping, texture crawling, frame popping, or impossible physics.',
+          'NO different narrator voice, NO age/accent/timbre drift, NO extra speakers, NO background voices over the dialogue.',
         ],
       },
       aesthetic_filter: {
@@ -219,8 +298,15 @@ export function buildVeoProductionManifestWithVoice(scene: SceneLike, options: V
               },
             },
             audio_scape: {
+              voice_continuity: {
+                speaker: speakerName,
+                voice_profile: voiceProfile,
+                rules: buildVoiceContinuityRules(),
+              },
               dialogue: {
+                speaker: speakerName,
                 transcript: dialogue,
+                delivery: `Spoken by ${speakerName} using the exact voice profile above. Preserve the same voice identity across all generated clips.`,
               },
               sfx: ['Subtle cloth movement', 'Natural environmental detail'],
               ambient: buildAmbient(visual),
