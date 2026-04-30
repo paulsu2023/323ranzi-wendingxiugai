@@ -125,21 +125,29 @@ export async function POST(request: NextRequest) {
       const maxAttempts = 3;
 
       for (let attempt = 0; attempt < maxAttempts && collectedImages.length < variantCount; attempt += 1) {
-        const result = await generateImageWithFallback({
-          prompt,
-          aspectRatio,
-          resolution,
-          referenceImages: referenceImages || [],
-          imageModel,
-          cameraPrompt,
-          stylePrompt,
-        });
+        const remaining = variantCount - collectedImages.length;
+        const batchSize = Math.min(remaining, 2);
+        const results = await Promise.all(
+          Array.from({ length: batchSize }, () =>
+            generateImageWithFallback({
+              prompt,
+              aspectRatio,
+              resolution,
+              referenceImages: referenceImages || [],
+              imageModel,
+              cameraPrompt,
+              stylePrompt,
+            })
+          )
+        );
 
-        const newImages = (result.images || []).map((image) => ({
+        const newImages = results.flatMap((result) =>
+          (result.images || []).map((image) => ({
             url: image.url,
             mimeType: image.mimeType,
             base64: image.base64,
-          }));
+          }))
+        );
 
         const merged = dedupeImages([...collectedImages, ...newImages]);
         collectedImages.length = 0;
@@ -162,22 +170,23 @@ export async function POST(request: NextRequest) {
     }
 
     if (type === 'video') {
-      const videos: Array<{ url: string; mimeType: string; model: string }> = [];
-      for (let index = 0; index < variantCount; index += 1) {
-        const result = await generateVideoWithFlow({
-          prompt,
-          aspectRatio,
-          referenceImages: referenceImages || [],
-          cameraPrompt,
-          stylePrompt,
-        });
+      const videos = await Promise.all(
+        Array.from({ length: variantCount }, async () => {
+          const result = await generateVideoWithFlow({
+            prompt,
+            aspectRatio,
+            referenceImages: referenceImages || [],
+            cameraPrompt,
+            stylePrompt,
+          });
 
-        videos.push({
-          url: result.url,
-          mimeType: result.mimeType,
-          model: result.model,
-        });
-      }
+          return {
+            url: result.url,
+            mimeType: result.mimeType,
+            model: result.model,
+          };
+        })
+      );
 
       const primaryVideo = videos[0];
       return NextResponse.json({
