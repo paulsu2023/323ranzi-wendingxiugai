@@ -288,8 +288,7 @@ export const Storyboard: React.FC<Props> = ({
   const [expandedScene, setExpandedScene] = useState<string | null>(scenes[0]?.id || null);
   const [isGeneratingAll, setIsGeneratingAll] = useState(false);
   const [promptModal, setPromptModal] = useState<{ isOpen: boolean; content: string } | null>(null);
-  const [imageVariantCount, setImageVariantCount] = useState(1);
-  const [videoVariantCount, setVideoVariantCount] = useState(1);
+  const [sceneVariantCounts, setSceneVariantCounts] = useState<Record<string, { image: number; video: number }>>({});
   
   // Track abort controllers for each scene and generation type
   const abortControllers = useRef<Map<string, AbortController>>(new Map());
@@ -310,6 +309,23 @@ export const Storyboard: React.FC<Props> = ({
 
   const selectedImageModel = IMAGE_MODELS.find((model) => model.value === imageModel)?.label || imageModel;
   const variantOptions = [1, 2, 3, 4];
+  const clampVariantCount = (value: number) => Math.max(1, Math.min(4, Number(value) || 1));
+  const getSceneVariantCounts = (sceneId: string) => ({
+      image: sceneVariantCounts[sceneId]?.image ?? 1,
+      video: sceneVariantCounts[sceneId]?.video ?? 2,
+  });
+  const updateSceneVariantCount = (sceneId: string, type: 'image' | 'video', value: number) => {
+      setSceneVariantCounts((current) => {
+          const existing = current[sceneId] || { image: 1, video: 2 };
+          return {
+              ...current,
+              [sceneId]: {
+                  ...existing,
+                  [type]: clampVariantCount(value),
+              },
+          };
+      });
+  };
 
   const getVideoManifestPrompt = (scene: StoryboardScene) => {
       const customPrompt = scene.prompt.videoPromptCustom
@@ -560,7 +576,7 @@ export const Storyboard: React.FC<Props> = ({
           imageModel,
           cameraPrompt,
           stylePrompt,
-          imageVariantCount
+          getSceneVariantCounts(scene.id).image
       );
 
       if (!isLatestGeneration(generationKey, generationToken)) {
@@ -654,7 +670,7 @@ export const Storyboard: React.FC<Props> = ({
         if (!hasVeoProductionManifest(prompt)) {
             throw new Error('图片转视频 JSON Manifest 格式无效：缺少 veo_production_manifest');
         }
-        const primaryResult = await generateVideoAPI(prompt, aspectRatio, referenceImages, cameraPrompt, stylePrompt, videoVariantCount);
+        const primaryResult = await generateVideoAPI(prompt, aspectRatio, referenceImages, cameraPrompt, stylePrompt, getSceneVariantCounts(scene.id).video);
 
         if (!isLatestGeneration(generationKey, generationToken)) {
             return;
@@ -727,34 +743,6 @@ export const Storyboard: React.FC<Props> = ({
                     </span>
                 </div>
 
-                <div className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 flex items-center gap-2">
-                    <span className="text-[10px] font-bold text-slate-500">图候选</span>
-                    <select
-                        value={imageVariantCount}
-                        onChange={(event) => setImageVariantCount(Number(event.target.value))}
-                        className="bg-black/30 border border-slate-700 rounded px-2 py-1 text-[10px] text-white focus:outline-none focus:border-brand-500"
-                        title="每次生成分镜图的候选数量，默认 1 更稳定"
-                    >
-                        {variantOptions.map((count) => (
-                            <option key={`image-${count}`} value={count}>{count} 张</option>
-                        ))}
-                    </select>
-                </div>
-
-                <div className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 flex items-center gap-2">
-                    <span className="text-[10px] font-bold text-slate-500">视频候选</span>
-                    <select
-                        value={videoVariantCount}
-                        onChange={(event) => setVideoVariantCount(Number(event.target.value))}
-                        className="bg-black/30 border border-slate-700 rounded px-2 py-1 text-[10px] text-white focus:outline-none focus:border-brand-500"
-                        title="每次生成分镜视频的候选数量，默认 1 更稳定"
-                    >
-                        {variantOptions.map((count) => (
-                            <option key={`video-${count}`} value={count}>{count} 个</option>
-                        ))}
-                    </select>
-                </div>
-
                 {/* Resolution Badge */}
                 <div className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 flex items-center gap-2">
                     <span className="text-[10px] font-bold text-slate-500">分辨率</span>
@@ -768,6 +756,7 @@ export const Storyboard: React.FC<Props> = ({
       {scenes.map((scene, index) => {
         const isScene1 = index === 0;
         const isLocked = !isScene1 && !scenes[0].startImage;
+        const variantCounts = getSceneVariantCounts(scene.id);
 
         return (
             <div key={scene.id} className={`rounded-xl border transition-all shadow-lg ${isLocked ? 'bg-slate-900/30 border-slate-800 opacity-70' : 'bg-slate-900 border-slate-700 hover:border-slate-600'}`}>
@@ -929,6 +918,40 @@ export const Storyboard: React.FC<Props> = ({
                 {/* Right: Asset Generation (7 cols) */}
                 <div className="xl:col-span-7">
                     <div className="flex flex-col gap-6 h-full">
+                        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2">
+                            <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                                <Square size={12} />
+                                分镜 {index + 1} 生成数量
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                                <div className="flex items-center gap-2 rounded-md border border-slate-800 bg-black/20 px-2 py-1">
+                                    <span className="text-[10px] font-bold text-slate-500">图候选</span>
+                                    <select
+                                        value={variantCounts.image}
+                                        onChange={(event) => updateSceneVariantCount(scene.id, 'image', Number(event.target.value))}
+                                        className="bg-black/30 border border-slate-700 rounded px-2 py-1 text-[10px] text-white focus:outline-none focus:border-brand-500"
+                                        title="当前分镜每次生成图片帧的候选数量，默认 1 更稳定"
+                                    >
+                                        {variantOptions.map((count) => (
+                                            <option key={`${scene.id}-image-${count}`} value={count}>{count} 张</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="flex items-center gap-2 rounded-md border border-slate-800 bg-black/20 px-2 py-1">
+                                    <span className="text-[10px] font-bold text-slate-500">视频候选</span>
+                                    <select
+                                        value={variantCounts.video}
+                                        onChange={(event) => updateSceneVariantCount(scene.id, 'video', Number(event.target.value))}
+                                        className="bg-black/30 border border-slate-700 rounded px-2 py-1 text-[10px] text-white focus:outline-none focus:border-brand-500"
+                                        title="当前分镜每次生成视频的候选数量，默认 2 个"
+                                    >
+                                        {variantOptions.map((count) => (
+                                            <option key={`${scene.id}-video-${count}`} value={count}>{count} 个</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
                         
                         {/* Visual Asset Flow */}
                         <div className="flex gap-4 overflow-x-auto pb-4 items-start custom-scrollbar">
