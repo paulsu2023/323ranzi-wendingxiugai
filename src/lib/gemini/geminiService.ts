@@ -113,6 +113,14 @@ function normalizeWhitespace(value: string | undefined | null) {
     .trim();
 }
 
+function normalizeBlockText(value: string | undefined | null) {
+  return String(value || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 type GenderLock = 'female' | 'male' | 'unknown';
 
 function inferPresentationGenderLock(product: ProductData): GenderLock {
@@ -253,6 +261,14 @@ function buildReferenceVideoRewriteFallback(product: ProductData) {
   }
 
   return '若没有额外说明，将优先按照参考视频的钩子、节奏、镜头推进和文案结构进行高相似度重塑，但所有产品细节必须严格改写为你上传商品的真实信息。';
+}
+
+function buildReferenceVideoCopyComparisonFallback(product: ProductData) {
+  if (!product.referenceVideo) {
+    return '未上传参考视频，因此没有原视频文案与当前商品改写对照。';
+  }
+
+  return '系统会按时间顺序整理参考视频中的可识别口播/字幕/画面文字，输出原文、中文释义，并把可复刻的句式结构改写为当前商品版本；如果无法从关键帧确认完整原文，会明确标注“无法确认完整原文”，只复刻可验证的结构和节奏。';
 }
 
 function buildReferenceVideoStructurePlanFallback(product: ProductData) {
@@ -672,6 +688,8 @@ function needsChineseLocalization(result: any) {
     result?.modelRequirements,
     result?.backgroundGuidance,
     result?.realismGuidance,
+    result?.referenceVideoScriptExtraction,
+    result?.referenceVideoCopyComparison,
     result?.referenceVideoTimingPlan,
     result?.complianceCheck?.report,
     result?.complianceCheck?.culturalNotes,
@@ -705,8 +723,12 @@ async function localizeDisplayFieldsToChinese(client: GoogleGenAI, result: any) 
     realismGuidance: result.realismGuidance,
     assetMatchingGuidance: result.assetMatchingGuidance,
     referenceVideoAnalysis: result.referenceVideoAnalysis,
+    referenceVideoScriptExtraction: result.referenceVideoScriptExtraction,
     referenceVideoRewrite: result.referenceVideoRewrite,
+    referenceVideoCopyComparison: result.referenceVideoCopyComparison,
+    referenceVideoStructurePlan: result.referenceVideoStructurePlan,
     referenceVideoTimingPlan: result.referenceVideoTimingPlan,
+    referenceVideoHarnessCheck: result.referenceVideoHarnessCheck,
     executionHarness: result.executionHarness,
     complianceCheck: {
       report: result.complianceCheck?.report,
@@ -757,6 +779,7 @@ async function localizeDisplayFieldsToChinese(client: GoogleGenAI, result: any) 
               referenceVideoAnalysis: { type: Type.STRING },
               referenceVideoScriptExtraction: { type: Type.STRING },
               referenceVideoRewrite: { type: Type.STRING },
+              referenceVideoCopyComparison: { type: Type.STRING },
               referenceVideoStructurePlan: { type: Type.STRING },
               referenceVideoTimingPlan: { type: Type.STRING },
               referenceVideoHarnessCheck: { type: Type.STRING },
@@ -800,6 +823,7 @@ async function localizeDisplayFieldsToChinese(client: GoogleGenAI, result: any) 
               'referenceVideoAnalysis',
               'referenceVideoScriptExtraction',
               'referenceVideoRewrite',
+              'referenceVideoCopyComparison',
               'referenceVideoStructurePlan',
               'referenceVideoTimingPlan',
               'referenceVideoHarnessCheck',
@@ -846,6 +870,7 @@ async function localizeDisplayFieldsToChinese(client: GoogleGenAI, result: any) 
     referenceVideoAnalysis: localized.referenceVideoAnalysis || result.referenceVideoAnalysis,
     referenceVideoScriptExtraction: localized.referenceVideoScriptExtraction || result.referenceVideoScriptExtraction,
     referenceVideoRewrite: localized.referenceVideoRewrite || result.referenceVideoRewrite,
+    referenceVideoCopyComparison: localized.referenceVideoCopyComparison || result.referenceVideoCopyComparison,
     referenceVideoStructurePlan: localized.referenceVideoStructurePlan || result.referenceVideoStructurePlan,
     referenceVideoTimingPlan: localized.referenceVideoTimingPlan || result.referenceVideoTimingPlan,
     referenceVideoHarnessCheck: localized.referenceVideoHarnessCheck || result.referenceVideoHarnessCheck,
@@ -1007,6 +1032,8 @@ export const analyzeProduct = async (
 - 如果用户在产品描述/卖点或创意想法中输入了具体文案、讲解内容、口播脚本、分镜内容或表达顺序，必须严格按照用户输入的内容写作；只能按镜头节奏拆分、轻微补足连接词和时长，不允许重写核心话术、不允许替换卖点、不允许另起一套营销文案。
 - 如果用户输入的是一段连续讲解内容，必须优先把这段内容按语义和节奏直接切分到不同 scenes 的 dialogue 中，而不是重新撰写新的口播。
 - 如果用户上传了参考视频，必须提取视频中的画面结构和文案/字幕/口播结构；如果用户明确提到“复刻视频”“照着视频”“仿照视频”“高相似度”“1:1”“replicate”“copy structure”等意图，必须保留参考视频的文案结构、钩子顺序、卖点推进和 CTA 结构，只把产品名称、产品事实、展示动作和素材要求替换为当前商品，并保证替换自然。
+- 如果上传了参考视频，referenceVideoScriptExtraction 必须按时间顺序输出“原文 + 中文 + 时间戳”。格式优先使用：[00:00-00:03] Original: ... / 中文: ... / 画面: ...。如果只能从关键帧、字幕或画面文字判断，必须明确写“无法从关键帧确认完整口播原文”，不能把推测内容伪装成精确原话。
+- 如果上传了参考视频，referenceVideoCopyComparison 必须输出原视频文案与当前商品改写的对照。格式优先使用：[00:00-00:03] 原视频：“...” -> 当前商品改写：“...” -> 替换理由：...。当用户要求复刻、照着视频或高相似度时，这个字段必须重点说明保留了哪些句式、顺序和转化逻辑。
 - 你必须明确写出“哪些结构被保留、哪些内容被替换、替换理由是什么”，不能只笼统说“参考了视频结构”。
 - 你必须输出一段 referenceVideoHarnessCheck，说明本次是否已经检查过：结构保留、产品事实替换、人物/背景锁定、卖点贴合、CTA 贴合。
 - 如果上传了参考视频，必须根据参考视频总时长来规划分镜数量和总片长，尽量把最终脚本重塑到与原视频接近的时长区间；Veo 3.1 每条视频约 8 秒，因此需要按 8 秒一镜来拆分。
@@ -1077,7 +1104,7 @@ Reference video timing rebuild plan: ${timingPlan.promptGuidance}
 ${userInputWritingLock || 'No strict user-provided selling-point/script text.'}
 ${creativeInstruction}
 
-Return a high-conversion TikTok storyboard package with deep product analysis, customer pain points, target customer, ideal model guidance, background guidance, realism guidance, asset matching guidance, reference video analysis, extracted reference script/visual structure, reference-video-based rewrite strategy, retained structure plan, reference video timing plan, reference video harness checks, execution harness, and per-scene image/video prompts.
+Return a high-conversion TikTok storyboard package with deep product analysis, customer pain points, target customer, ideal model guidance, background guidance, realism guidance, asset matching guidance, reference video analysis, timestamped original+Chinese reference script extraction, reference-video-based rewrite strategy, original-vs-rewritten copy comparison, retained structure plan, reference video timing plan, reference video harness checks, execution harness, and per-scene image/video prompts.
 `;
   parts.push({ text: promptText });
 
@@ -1101,6 +1128,7 @@ Return a high-conversion TikTok storyboard package with deep product analysis, c
         referenceVideoAnalysis: { type: Type.STRING },
         referenceVideoScriptExtraction: { type: Type.STRING },
         referenceVideoRewrite: { type: Type.STRING },
+        referenceVideoCopyComparison: { type: Type.STRING },
         referenceVideoStructurePlan: { type: Type.STRING },
         referenceVideoTimingPlan: { type: Type.STRING },
         referenceVideoHarnessCheck: { type: Type.STRING },
@@ -1180,6 +1208,7 @@ Return a high-conversion TikTok storyboard package with deep product analysis, c
         'referenceVideoAnalysis',
         'referenceVideoScriptExtraction',
         'referenceVideoRewrite',
+        'referenceVideoCopyComparison',
         'referenceVideoStructurePlan',
         'referenceVideoTimingPlan',
         'referenceVideoHarnessCheck',
@@ -1239,8 +1268,9 @@ Return a high-conversion TikTok storyboard package with deep product analysis, c
   result.realismGuidance = normalizeWhitespace(result.realismGuidance);
   result.assetMatchingGuidance = normalizeWhitespace(result.assetMatchingGuidance) || buildAssetMatchingGuidance(product);
   result.referenceVideoAnalysis = normalizeWhitespace(result.referenceVideoAnalysis) || buildReferenceVideoAnalysisFallback(product);
-  result.referenceVideoScriptExtraction = normalizeWhitespace(result.referenceVideoScriptExtraction) || buildReferenceVideoScriptExtractionFallback(product);
+  result.referenceVideoScriptExtraction = normalizeBlockText(result.referenceVideoScriptExtraction) || buildReferenceVideoScriptExtractionFallback(product);
   result.referenceVideoRewrite = normalizeWhitespace(result.referenceVideoRewrite) || buildReferenceVideoRewriteFallback(product);
+  result.referenceVideoCopyComparison = normalizeBlockText(result.referenceVideoCopyComparison) || buildReferenceVideoCopyComparisonFallback(product);
   result.referenceVideoStructurePlan = normalizeWhitespace(result.referenceVideoStructurePlan) || buildReferenceVideoStructurePlanFallback(product);
   result.referenceVideoTimingPlan = normalizeWhitespace(result.referenceVideoTimingPlan) || timingPlan.displayText;
   result.referenceVideoHarnessCheck = normalizeWhitespace(result.referenceVideoHarnessCheck) || buildReferenceVideoHarnessCheckFallback(product);

@@ -67,6 +67,7 @@ export default function AppClient({ initialProfile }: AppClientProps) {
   const [previewMedia, setPreviewMedia] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [publishPanelOpen, setPublishPanelOpen] = useState(false);
+  const [referenceVideoPanelOpen, setReferenceVideoPanelOpen] = useState(false);
   const [selectedPublishTags, setSelectedPublishTags] = useState<string[]>([]);
 
   const getRecommendedSceneCount = (durationSeconds?: number) => {
@@ -88,6 +89,7 @@ export default function AppClient({ initialProfile }: AppClientProps) {
 
     setSelectedPublishTags(tags);
     setPublishPanelOpen(false);
+    setReferenceVideoPanelOpen(false);
   }, [state.analysis]);
 
   useEffect(() => {
@@ -879,35 +881,60 @@ export default function AppClient({ initialProfile }: AppClientProps) {
                               <p className="text-slate-400 text-xs leading-relaxed">{state.analysis.realismGuidance}</p>
                            </div>
 
-                           <div>
-                              <h3 className="text-slate-500 font-bold text-xs mb-1">🎬 参考视频拆解</h3>
-                              <p className="text-slate-400 text-xs leading-relaxed">{state.analysis.referenceVideoAnalysis}</p>
-                           </div>
+                           {state.product.referenceVideo && (
+                              <div className="bg-slate-950/70 rounded-lg border border-slate-800 overflow-hidden">
+                                 <button
+                                    type="button"
+                                    onClick={() => setReferenceVideoPanelOpen((open) => !open)}
+                                    className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-slate-900/80 transition-colors"
+                                 >
+                                    <div>
+                                       <h3 className="text-slate-300 font-bold text-xs">🎬 参考视频文案提取与复刻对照</h3>
+                                       <p className="text-slate-500 text-[11px] mt-1">原文 / 中文 / 时间戳 / 当前商品改写对照</p>
+                                    </div>
+                                    {referenceVideoPanelOpen ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
+                                 </button>
 
-                           <div>
-                              <h3 className="text-slate-500 font-bold text-xs mb-1">📝 参考视频脚本与画面提取</h3>
-                              <p className="text-slate-400 text-xs leading-relaxed">{state.analysis.referenceVideoScriptExtraction}</p>
-                           </div>
+                                 {referenceVideoPanelOpen && (
+                                    <div className="px-4 pb-4 space-y-4 border-t border-slate-800">
+                                       <div className="pt-4">
+                                          <h4 className="text-purple-300 font-bold text-[11px] mb-2">原视频文案提取（原文 + 中文 + 时间戳）</h4>
+                                          <p className="text-slate-400 text-xs leading-relaxed whitespace-pre-wrap">{state.analysis.referenceVideoScriptExtraction}</p>
+                                       </div>
 
-                           <div>
-                              <h3 className="text-slate-500 font-bold text-xs mb-1">✍️ 参考视频重塑策略</h3>
-                              <p className="text-slate-400 text-xs leading-relaxed">{state.analysis.referenceVideoRewrite}</p>
-                           </div>
+                                       <div>
+                                          <h4 className="text-brand-300 font-bold text-[11px] mb-2">复刻改写对照</h4>
+                                          <p className="text-slate-400 text-xs leading-relaxed whitespace-pre-wrap">{state.analysis.referenceVideoCopyComparison}</p>
+                                       </div>
 
-                           <div>
-                              <h3 className="text-slate-500 font-bold text-xs mb-1">🧭 结构保留与替换计划</h3>
-                              <p className="text-slate-400 text-xs leading-relaxed">{state.analysis.referenceVideoStructurePlan}</p>
-                           </div>
+                                       <div>
+                                          <h4 className="text-slate-300 font-bold text-[11px] mb-2">参考视频拆解</h4>
+                                          <p className="text-slate-400 text-xs leading-relaxed">{state.analysis.referenceVideoAnalysis}</p>
+                                       </div>
 
-                           <div>
-                              <h3 className="text-slate-500 font-bold text-xs mb-1">⏱️ 时长重塑计划</h3>
-                              <p className="text-slate-400 text-xs leading-relaxed">{state.analysis.referenceVideoTimingPlan}</p>
-                           </div>
+                                       <div>
+                                          <h4 className="text-slate-300 font-bold text-[11px] mb-2">重塑策略</h4>
+                                          <p className="text-slate-400 text-xs leading-relaxed">{state.analysis.referenceVideoRewrite}</p>
+                                       </div>
 
-                           <div>
-                              <h3 className="text-slate-500 font-bold text-xs mb-1">✅ Harness 检查结论</h3>
-                              <p className="text-slate-400 text-xs leading-relaxed">{state.analysis.referenceVideoHarnessCheck}</p>
-                           </div>
+                                       <div>
+                                          <h4 className="text-slate-300 font-bold text-[11px] mb-2">结构保留与替换计划</h4>
+                                          <p className="text-slate-400 text-xs leading-relaxed">{state.analysis.referenceVideoStructurePlan}</p>
+                                       </div>
+
+                                       <div>
+                                          <h4 className="text-slate-300 font-bold text-[11px] mb-2">时长重塑计划</h4>
+                                          <p className="text-slate-400 text-xs leading-relaxed">{state.analysis.referenceVideoTimingPlan}</p>
+                                       </div>
+
+                                       <div>
+                                          <h4 className="text-slate-300 font-bold text-[11px] mb-2">Harness 检查结论</h4>
+                                          <p className="text-slate-400 text-xs leading-relaxed">{state.analysis.referenceVideoHarnessCheck}</p>
+                                       </div>
+                                    </div>
+                                 )}
+                              </div>
+                           )}
 
                            <div className="bg-slate-950/70 p-4 rounded-lg border border-slate-800">
                               <h3 className="text-slate-300 font-bold text-xs mb-2">🧱 Harness 执行约束</h3>

@@ -64,6 +64,7 @@ export interface AnalysisResult {
   referenceVideoAnalysis: string;
   referenceVideoScriptExtraction: string;
   referenceVideoRewrite: string;
+  referenceVideoCopyComparison: string;
   referenceVideoStructurePlan: string;
   referenceVideoTimingPlan: string;
   referenceVideoHarnessCheck: string;
