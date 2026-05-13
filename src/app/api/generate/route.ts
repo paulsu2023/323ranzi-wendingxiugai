@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server';
 import { CREDIT_COSTS } from '@/constants';
 import { shouldUseSupabase } from '@/lib/config';
 import { createGoogleClient } from '@/lib/google/client';
+import { generateImage as generateImageWithVertex } from '@/lib/gemini/geminiService';
 import { generateImageWithFlow, generateVideoWithFlow } from '@/lib/flow/flowService';
 
 const FALLBACK_IMAGE_MODEL = 'gemini-2.5-flash-image';
@@ -75,10 +76,17 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { type, prompt, aspectRatio, resolution, referenceImages, imageModel, cameraPrompt, stylePrompt, count } = body;
-    const variantCount = Math.max(1, Math.min(4, Number(count || 1)));
+    const imageProvider = body.imageProvider === 'vertex' ? 'vertex' : 'flow';
+    const variantCount = imageProvider === 'vertex' && type === 'image'
+      ? 1
+      : Math.max(1, Math.min(4, Number(count || 1)));
 
     if (type !== 'image' && type !== 'audio' && type !== 'video') {
       return NextResponse.json({ error: '无效的生成类型' }, { status: 400 });
+    }
+
+    if (type === 'video' && imageProvider === 'vertex') {
+      return NextResponse.json({ error: 'Vertex 生图模式下不能生成视频，请切换到 Flow API 后再生成视频' }, { status: 400 });
     }
 
     let creditsRemaining = 0;
@@ -121,6 +129,31 @@ export async function POST(request: NextRequest) {
     }
 
     if (type === 'image') {
+      if (imageProvider === 'vertex') {
+        const genai = createGoogleClient();
+        const base64 = await generateImageWithVertex(
+          genai,
+          prompt,
+          aspectRatio,
+          resolution,
+          referenceImages || [],
+          undefined,
+          cameraPrompt,
+          stylePrompt
+        );
+
+        return NextResponse.json({
+          base64,
+          mimeType: 'image/jpeg',
+          images: [{
+            url: `data:image/jpeg;base64,${base64}`,
+            mimeType: 'image/jpeg',
+            base64,
+          }],
+          creditsRemaining,
+        });
+      }
+
       const collectedImages: Array<{ url: string; mimeType: string; base64: string }> = [];
       const maxAttempts = 3;
 

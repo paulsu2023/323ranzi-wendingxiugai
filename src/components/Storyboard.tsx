@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Play, Image as ImageIcon, Wand2, Copy, ChevronDown, ChevronUp, RefreshCw, ArrowRight, Maximize2, Pause, Download, Edit3, X, Check, FileJson, Lock, Zap, Sparkles, Video, Camera, Activity, FileText, Square } from 'lucide-react';
-import { StoryboardScene, VideoMode, AspectRatio, GeneratedAsset, GeneratedAssetVariant, ImageResolution } from '@/types';
+import { StoryboardScene, VideoMode, AspectRatio, GeneratedAsset, GeneratedAssetVariant, ImageResolution, ImageProvider } from '@/types';
 import { generateImageAPI, generateVideoAPI, optimizePromptAPI } from '@/services/apiClient';
 import { AnalysisLoader } from './AnalysisLoader';
 import { CAMERA_DEVICES, IMAGE_MODELS, SHOOTING_STYLES } from '@/constants';
@@ -57,6 +57,7 @@ interface AssetCardProps {
   icon: React.ReactNode;
   highlight?: boolean;
   disabled?: boolean;
+  disabledReason?: string;
   title?: string;
   sceneIndex?: number;
   type?: string;
@@ -65,7 +66,7 @@ interface AssetCardProps {
 }
 
 const AssetCard: React.FC<AssetCardProps> = ({ 
-    label, asset, loading, onGen, onStop, onPreview, onViewPrompt, icon, highlight, disabled, title, sceneIndex, type, aspectRatio, onSelectVariant
+    label, asset, loading, onGen, onStop, onPreview, onViewPrompt, icon, highlight, disabled, disabledReason, title, sceneIndex, type, aspectRatio, onSelectVariant
 }) => {
     const extension = asset?.type === 'video' ? 'mp4' : asset?.mimeType.includes('png') ? 'png' : asset?.type === 'audio' ? 'wav' : 'jpg';
     const downloadName = asset?.type === 'video'
@@ -254,7 +255,7 @@ const AssetCard: React.FC<AssetCardProps> = ({
                             <Wand2 size={16} />
                         </button>
                         {disabled ? (
-                            <span className="text-[10px] text-slate-600">需先生成前序分镜</span>
+                            <span className="text-[10px] text-slate-600">{disabledReason || '需先生成前序分镜'}</span>
                         ) : (
                             <span className="text-[10px] text-slate-500">点击生成</span>
                         )}
@@ -270,6 +271,7 @@ interface Props {
   videoMode: VideoMode;
   aspectRatio: AspectRatio;
   resolution: ImageResolution;
+  imageProvider: ImageProvider;
   imageModel: string;
   cameraDevice: string;
   shootingStyle: string;
@@ -284,7 +286,7 @@ interface Props {
 }
 
 export const Storyboard: React.FC<Props> = ({ 
-    scenes, videoMode, aspectRatio, resolution, imageModel, cameraDevice, shootingStyle, productImages, modelImages, backgroundImages, assignedVoice, assignedVoiceProfile,
+    scenes, videoMode, aspectRatio, resolution, imageProvider, imageModel, cameraDevice, shootingStyle, productImages, modelImages, backgroundImages, assignedVoice, assignedVoiceProfile,
     onUpdateScene, onPreview, productTitle
 }) => {
   const [expandedScene, setExpandedScene] = useState<string | null>(scenes[0]?.id || null);
@@ -308,7 +310,10 @@ export const Storyboard: React.FC<Props> = ({
       navigator.clipboard.writeText(text);
   };
 
-  const selectedImageModel = IMAGE_MODELS.find((model) => model.value === imageModel)?.label || imageModel;
+  const isVertexImageProvider = imageProvider === 'vertex';
+  const selectedImageModel = isVertexImageProvider
+      ? 'Vertex Gemini 3 Pro Image'
+      : IMAGE_MODELS.find((model) => model.value === imageModel)?.label || imageModel;
   const effectiveVoiceProfile = assignedVoiceProfile || getVeoVoiceProfileText(assignedVoice);
 
   const getVideoManifestPrompt = (scene: StoryboardScene) => {
@@ -563,7 +568,8 @@ export const Storyboard: React.FC<Props> = ({
           imageModel,
           cameraPrompt,
           stylePrompt,
-          1
+          1,
+          imageProvider
       );
 
       if (!isLatestGeneration(generationKey, generationToken)) {
@@ -576,7 +582,7 @@ export const Storyboard: React.FC<Props> = ({
       else if (type === 'end') onUpdateScene(scene.id, { endImage: primaryAsset });
       else if (type === 'middle') onUpdateScene(scene.id, { middleImage: primaryAsset });
 
-      void (async () => {
+      if (!isVertexImageProvider) void (async () => {
           try {
               const extraResult = await generateImageAPI(
                   prompt,
@@ -586,7 +592,8 @@ export const Storyboard: React.FC<Props> = ({
                   imageModel,
                   cameraPrompt,
                   stylePrompt,
-                  3
+                  3,
+                  imageProvider
               );
 
               if (!isLatestGeneration(generationKey, generationToken)) {
@@ -672,6 +679,11 @@ export const Storyboard: React.FC<Props> = ({
   };
 
   const handleGenerateVideo = async (scene: StoryboardScene) => {
+    if (isVertexImageProvider) {
+        onUpdateScene(scene.id, { error: 'Vertex 生图模式下不能生成视频，请切换到 Flow API 后再生成视频' });
+        return;
+    }
+
     const referenceImages = getSceneVideoReferenceImages(scene);
     if (referenceImages.length === 0) {
         onUpdateScene(scene.id, { error: '请先生成至少一张分镜图，再生成视频' });
@@ -689,7 +701,7 @@ export const Storyboard: React.FC<Props> = ({
         if (!hasVeoProductionManifest(prompt)) {
             throw new Error('图片转视频 JSON Manifest 格式无效：缺少 veo_production_manifest');
         }
-        const primaryResult = await generateVideoAPI(prompt, aspectRatio, referenceImages, cameraPrompt, stylePrompt, 1);
+        const primaryResult = await generateVideoAPI(prompt, aspectRatio, referenceImages, cameraPrompt, stylePrompt, 1, imageProvider);
 
         if (!isLatestGeneration(generationKey, generationToken)) {
             return;
@@ -700,7 +712,7 @@ export const Storyboard: React.FC<Props> = ({
 
         void (async () => {
             try {
-                const extraResult = await generateVideoAPI(prompt, aspectRatio, referenceImages, cameraPrompt, stylePrompt, 3);
+                const extraResult = await generateVideoAPI(prompt, aspectRatio, referenceImages, cameraPrompt, stylePrompt, 3, imageProvider);
                 if (!isLatestGeneration(generationKey, generationToken)) {
                     return;
                 }
@@ -770,12 +782,17 @@ export const Storyboard: React.FC<Props> = ({
            
             <div className="flex items-center gap-3">
                  {/* Model Badge (New) */}
-                 <div className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 flex items-center gap-2 hidden lg:flex">
-                     <span className="text-[10px] font-bold text-slate-500">模型</span>
-                     <span className="text-[10px] text-sky-400 font-mono">
-                         {selectedImageModel}
-                     </span>
+                <div className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 flex items-center gap-2 hidden lg:flex">
+                    <span className="text-[10px] font-bold text-slate-500">{isVertexImageProvider ? '生图 API' : '模型'}</span>
+                    <span className="text-[10px] text-sky-400 font-mono">
+                        {selectedImageModel}
+                    </span>
                 </div>
+                {isVertexImageProvider && (
+                    <div className="bg-amber-950/40 border border-amber-700/40 rounded-lg px-3 py-1.5 text-[10px] text-amber-300 font-medium">
+                        单张图片模式，视频已禁用
+                    </div>
+                )}
 
                 {/* Resolution Badge */}
                 <div className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 flex items-center gap-2">
@@ -1032,7 +1049,8 @@ export const Storyboard: React.FC<Props> = ({
                                 onViewPrompt={() => setPromptModal({ isOpen: true, content: buildStoryboardVideoPrompt(scene) })}
                                 icon={<Video size={14} />}
                                 highlight
-                                disabled={!scene.startImage}
+                                disabled={!scene.startImage || isVertexImageProvider}
+                                disabledReason={isVertexImageProvider ? 'Vertex 模式禁用视频' : '需先生成首帧图'}
                                 title={productTitle}
                                 sceneIndex={index + 1}
                                 type="video"

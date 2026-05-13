@@ -9,7 +9,7 @@ import {
   getVeoVoiceProfileText,
 } from "@/lib/voiceProfiles";
 
-const GEMINI_MODEL_IMAGE = 'gemini-3.1-pro-image-preview';
+const GEMINI_MODEL_IMAGE = 'gemini-3-pro-image-preview';
 
 export { VOICE_OPTIONS };
 
@@ -1334,12 +1334,13 @@ export const generateImage = async (
     model: modelName,
     contents: [{ role: 'user', parts }],
     config: {
+      responseModalities: [Modality.TEXT, Modality.IMAGE],
       imageConfig: { aspectRatio: parsedAspect as any, imageSize: resolution as any },
     } as any,
   }));
 
-  const data = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data ||
-               response.candidates?.[0]?.content?.parts?.[0]?.text;
+  const responseParts = response.candidates?.[0]?.content?.parts || [];
+  const data = responseParts.find((part: any) => part?.inlineData?.data)?.inlineData?.data;
 
   if (!data) throw new Error('Gemini/FlowAPI model failed to generate image data');
   return data;

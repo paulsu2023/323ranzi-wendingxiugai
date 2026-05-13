@@ -18,6 +18,8 @@ export enum VideoMode {
   Intermediate = 'intermediate',
 }
 
+export type ImageProvider = 'flow' | 'vertex';
+
 export interface ReferenceVideoData {
   previewUrl: string;
   mimeType: string;
@@ -136,6 +138,7 @@ export interface AppState {
     videoMode: VideoMode;
     sceneCount: number;
     analysisModel: string;
+    imageProvider: ImageProvider;
     imageModel: string;
     cameraDevice: string;
     shootingStyle: string;

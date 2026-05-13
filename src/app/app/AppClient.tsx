@@ -6,8 +6,8 @@ import { ImageUploader, VideoUploader } from '@/components/ImageUploader';
 import { Storyboard } from '@/components/Storyboard';
 import { AnalysisLoader } from '@/components/AnalysisLoader';
 import { analyzeProductAPI, validateGeminiConfigAPI } from '@/services/apiClient';
-import { AppState, AspectRatio, VideoMode, StoryboardScene, ImageResolution, UserProfile, UserGeminiConfig } from '@/types';
-import { ANALYSIS_MODELS, ASPECT_RATIOS, VIDEO_MODES, IMAGE_RESOLUTIONS, TARGET_MARKETS, IMAGE_MODELS, CAMERA_DEVICES, SHOOTING_STYLES } from '@/constants';
+import { AppState, AspectRatio, VideoMode, StoryboardScene, ImageResolution, UserProfile, UserGeminiConfig, ImageProvider } from '@/types';
+import { ANALYSIS_MODELS, ASPECT_RATIOS, VIDEO_MODES, IMAGE_RESOLUTIONS, TARGET_MARKETS, IMAGE_PROVIDERS, IMAGE_MODELS, CAMERA_DEVICES, SHOOTING_STYLES } from '@/constants';
 import { createClient } from '@/lib/supabase/client';
 import { isDemoMode } from '@/lib/config';
 import { useRouter } from 'next/navigation';
@@ -34,6 +34,7 @@ const createInitialState = (): AppState => ({
     videoMode: VideoMode.Standard,
     sceneCount: 1,
     analysisModel: 'gemini-3-flash-preview',
+    imageProvider: 'flow',
     imageModel: 'gemini-3.0-pro-image',
     cameraDevice: 'iphone_16_pro_max',
     shootingStyle: 'fixed',
@@ -500,16 +501,34 @@ export default function AppClient({ initialProfile }: AppClientProps) {
                             </select>
                         </div>
                     
+                        <div className="col-span-2">
+                             <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">生图 API</label>
+                             <select 
+                                 className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-xs text-slate-200 focus:border-brand-500 outline-none"
+                                 value={state.settings.imageProvider}
+                                 onChange={(e) => setState(prev => ({...prev, settings: {...prev.settings, imageProvider: e.target.value as ImageProvider}}))}
+                             >
+                                 {IMAGE_PROVIDERS.map(provider => <option key={provider.value} value={provider.value}>{provider.label}</option>)}
+                             </select>
+                             {state.settings.imageProvider === 'vertex' && (
+                                <p className="mt-1 text-[10px] text-amber-400">Vertex 模式每次只生成 1 张图片，且不支持分镜视频生成。</p>
+                             )}
+                        </div>
+
                         {/* Image Model Selection RESTORED */}
                         <div className="col-span-1">
                              <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">生图模型 (Model)</label>
                              <select 
-                                 className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-xs text-slate-200 focus:border-brand-500 outline-none"
+                                 className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-xs text-slate-200 focus:border-brand-500 outline-none disabled:opacity-50"
                                  value={state.settings.imageModel}
+                                 disabled={state.settings.imageProvider === 'vertex'}
                                  onChange={(e) => setState(prev => ({...prev, settings: {...prev.settings, imageModel: e.target.value}}))}
                              >
                                  {IMAGE_MODELS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
                              </select>
+                             {state.settings.imageProvider === 'vertex' && (
+                                <p className="mt-1 text-[10px] text-slate-500">Vertex 使用服务端默认 Gemini 图片模型。</p>
+                             )}
                         </div>
 
                         {/* Resolution Selection */}
@@ -920,6 +939,7 @@ export default function AppClient({ initialProfile }: AppClientProps) {
                      videoMode={state.settings.videoMode}
                      aspectRatio={state.settings.aspectRatio}
                      resolution={state.settings.imageResolution}
+                     imageProvider={state.settings.imageProvider}
                      imageModel={state.settings.imageModel}
                      cameraDevice={state.settings.cameraDevice}
                      shootingStyle={state.settings.shootingStyle}

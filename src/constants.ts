@@ -48,6 +48,11 @@ export const VIDEO_MODES = [
   { value: VideoMode.Intermediate, label: '运镜控制模式 (首图+草稿+尾图)' },
 ];
 
+export const IMAGE_PROVIDERS = [
+  { value: 'flow', label: 'Flow API (4 张候选 + 支持视频)' },
+  { value: 'vertex', label: 'Vertex API (单张图片，不支持视频)' },
+] as const;
+
 // Model Selection for Image Generation
 export const IMAGE_MODELS = [
   { value: 'gemini-2.5-flash-image', label: 'Flow Flash (极速)' },

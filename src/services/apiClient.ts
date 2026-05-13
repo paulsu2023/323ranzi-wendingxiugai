@@ -1,4 +1,5 @@
 import { ProductData, AspectRatio, ImageResolution, AnalysisResult, UserGeminiConfig } from '@/types';
+import type { ImageProvider } from '@/types';
 
 const MAX_GENERATION_REFERENCE_IMAGES = 3;
 const MAX_REFERENCE_IMAGE_SIDE = 1280;
@@ -148,7 +149,8 @@ export const generateImageAPI = async (
   imageModel: string,
   cameraPrompt: string,
   stylePrompt: string,
-  count = 4
+  count = 4,
+  imageProvider: ImageProvider = 'flow'
 ): Promise<{
   base64: string;
   creditsRemaining: number;
@@ -160,7 +162,7 @@ export const generateImageAPI = async (
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       type: 'image',
-      prompt, aspectRatio, resolution, referenceImages: preparedReferenceImages, imageModel, cameraPrompt, stylePrompt, count
+      prompt, aspectRatio, resolution, referenceImages: preparedReferenceImages, imageModel, cameraPrompt, stylePrompt, count, imageProvider
     }),
   });
   return parseJsonResponse(res, 'Failed to generate image');
@@ -172,7 +174,8 @@ export const generateVideoAPI = async (
   referenceImages: string[],
   cameraPrompt: string,
   stylePrompt: string,
-  count = 4
+  count = 4,
+  imageProvider: ImageProvider = 'flow'
 ): Promise<{
   url: string;
   model: string;
@@ -191,6 +194,7 @@ export const generateVideoAPI = async (
       cameraPrompt,
       stylePrompt,
       count,
+      imageProvider,
     }),
   });
   return parseJsonResponse(res, 'Failed to generate video');
